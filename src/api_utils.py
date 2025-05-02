@@ -6,7 +6,9 @@ from config import ANTHROPIC_MODEL
 
 # Initialize Anthropic client
 try:
+    st.write("Initializing Anthropic client...")
     anthropic = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
+    st.write("Done init Anthropic client...")
 except KeyError:
     st.error("Anthropic API key not found. Please set it in secrets.toml.")
     st.stop()
