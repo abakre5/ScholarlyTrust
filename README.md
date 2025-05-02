@@ -1,0 +1,1 @@
+# Predatory-Journal-Checker
