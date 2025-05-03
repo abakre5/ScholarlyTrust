@@ -9,17 +9,12 @@ def validate_issn(issn):
     pattern = r'^\d{4}-\d{4}$'
     return bool(re.match(pattern, issn))
 
-def validate_doi(doi):
-    """Validate DOI format (e.g., 10.1000/xyz123)."""
-    pattern = r'^10\.\d{4,9}/[-._;()/:A-Z0-9]+$'
-    return bool(re.match(pattern, doi.strip()))
-
 def validate_title(title):
     """Validate title (non-empty and reasonable length)."""
     return len(title.strip()) > 0 and len(title) <= 500
 
 def main():
-    st.title("Journal and Research Paper Legitimacy Checker")
+    st.title("ScholarlyTrust: Research Integrity Checker")
     st.write("Check the legitimacy of a journal (by ISSN) or a research paper (by DOI or title, including author legitimacy).")
     
     try:
@@ -67,23 +62,25 @@ def main():
                 
                 st.subheader("Journal Metadata")
                 with st.expander("View Journal Metadata"):
-                    st.write(f"**Total Works**: {str(metadata.get('total_works', 'N/A'))}")
-                    st.write(f"**Average Citations**: {str(round(float(metadata.get('avg_citations', 0)), 2)) if isinstance(metadata.get('avg_citations', 0), (int, float)) else 'N/A'}")
-                    st.write(f"**In DOAJ**: {'Yes' if metadata.get('is_in_doaj', False) else 'No'}")
+                    st.write(f"**Title**: {str(metadata.get('title', 'Unknown'))}")
                     st.write(f"**Publisher**: {str(metadata.get('publisher', 'Unknown'))}")
+                    st.write(f"**Homepage URL**: {str(metadata.get('homepage_url', 'N/A'))}")
+                    st.write(f"**In DOAJ**: {'Yes' if metadata.get('is_in_doaj', False) else 'No'}")
+                    st.write(f"**Is Open Access**: {'Yes' if metadata.get('is_open_access', False) else 'No'}")
+                    st.write(f"**Country Code**: {str(metadata.get('country_code', 'Unknown'))}")
+                    st.write(f"**Total Works**: {str(metadata.get('works_count', 'N/A'))}")
+                    st.write(f"**Cited By Count**: {str(metadata.get('cited_by_count', 'N/A'))}")
+                    st.write(f"**Fields of Research**: {', '.join(metadata.get('fields_of_research', ['Unknown']))}")
                 
                 st.subheader("Investigation Summary")
                 st.write(reason)
         
         else:
-            input_type = st.radio("Select paper input type:", ("Title", "DOI"))
+            input_type = st.radio("Select paper input type:", ("DOI", "Title"))
             paper_input = st.text_input(f"Enter paper {input_type} (e.g., DOI: 10.1128/mmbr.00144-23, Title: Microbiology of human spaceflight)", "")
             if st.button("Check Paper"):
                 if not paper_input:
                     st.error(f"Please enter a valid {input_type}.")
-                    return
-                if input_type == "DOI" and not validate_doi(paper_input):
-                    st.error("Invalid DOI format. Please use a format like 10.1000/xyz123.")
                     return
                 if input_type == "Title" and not validate_title(paper_input):
                     st.error("Invalid title. Please enter a non-empty title (up to 500 characters).")
@@ -132,15 +129,6 @@ def main():
                     st.write(f"**In DOAJ**: {'Yes' if metadata.get('is_in_doaj', False) else 'No'}")
                     st.write(f"**Publisher**: {str(metadata.get('publisher', 'Unknown'))}")
                 
-                with st.expander("View Author Metadata (Aggregated)"):
-                    st.write(f"**Average Publication Count (normalized)**: {str(metadata.get('avg_author_publications', 'N/A'))}")
-                    st.write(f"**Average Cited By Count (normalized)**: {str(metadata.get('avg_author_cited_by_count', 'N/A'))}")
-                    st.write(f"**Average 2-Year Mean Citedness**: {str(round(float(metadata.get('avg_author_2yr_citedness', 0)), 2)) if isinstance(metadata.get('avg_author_2yr_citedness', 0), (int, float)) else 'N/A'}")
-                    st.write(f"**ORCID Presence**: {str(metadata.get('orcid_presence', 'No'))}")
-                    st.write(f"**Top Concepts**: {str(metadata.get('top_concepts', 'Unknown'))}")
-                    st.write(f"**Publication Trend (Last 5 Years)**: {str(metadata.get('publication_trend', 'N/A'))}")
-                    st.write(f"**External Recognition (Citations/Co-authorship)**: {str(metadata.get('external_recognition', 'None'))}")
-    
     except Exception:
         st.error("An unexpected error occurred in the application. Please refresh the page and try again.")
         return
@@ -157,49 +145,120 @@ def main():
 
 def generate_journal_reason(confidence, metadata):
     """Generate a reason for the journal's legitimacy based on confidence and metadata."""
-    if confidence >= 60:
-        confidence_message = f"We’re {confidence}% sure this journal is trustworthy because it has strong signs of quality."
-        publisher_message = f"It’s run by {metadata.get('publisher', 'an unknown publisher')}, which is {'widely known and trusted' if confidence >= 70 else 'not widely known or trusted'}."
-        citation_message = f"The journal’s articles are {'often read and cited' if metadata.get('avg_citations', 0) > 5 else 'not widely read'}, with an average of {round(float(metadata.get('avg_citations', 0)), 2)} citations per article."
-        doaj_message = f"It’s {'listed' if metadata.get('is_in_doaj', False) else 'not listed'} on a trusted journal directory (DOAJ), which {'adds to its credibility' if metadata.get('is_in_doaj', False) else 'raises some questions about its standards'}."
-    elif confidence > 30:
-        confidence_message = f"We’re only {confidence}% sure about this journal because it shows some mixed signs."
-        publisher_message = f"The publisher, {metadata.get('publisher', 'unknown')}, {'is somewhat trusted' if confidence >= 50 else 'isn’t well-known'}, which makes us cautious."
-        citation_message = f"The journal’s articles get {round(float(metadata.get('avg_citations', 0)), 2)} citations on average, showing {'some' if metadata.get('avg_citations', 0) > 2 else 'very little'} attention from researchers."
-        doaj_message = f"It’s {'listed' if metadata.get('is_in_doaj', False) else 'not listed'} on a trusted journal directory (DOAJ), {'which is good' if metadata.get('is_in_doaj', False) else 'which raises concerns'}."
-    else:
-        confidence_message = f"We’re only {confidence}% confident in this journal because it has serious red flags."
-        publisher_message = f"The publisher, {metadata.get('publisher', 'unknown')}, is not trusted, which suggests it might not be reliable."
-        citation_message = f"The journal’s articles get {round(float(metadata.get('avg_citations', 0)), 2)} citations on average, meaning they’re {'rarely read' if metadata.get('avg_citations', 0) < 2 else 'not widely read'} by researchers."
-        doaj_message = f"It’s {'not listed' if not metadata.get('is_in_doaj', False) else 'listed'} on a trusted journal directory (DOAJ), {'which makes it very questionable' if not metadata.get('is_in_doaj', False) else 'but this alone doesn’t make it trustworthy'}."
+    citations_count = metadata.get('cited_by_count', 0)
+    is_in_doaj = metadata.get('is_in_doaj', False)
+    publisher = metadata.get('publisher', 'an unknown publisher')
+    works_count = metadata.get('works_count', 0)
+    title = metadata.get('title', 'an unknown title')
+    fields_of_research = metadata.get('fields_of_research', ['Unknown'])[:3]
 
-    return f"{confidence_message} {publisher_message} {citation_message} {doaj_message}"
+    # Handle unknown or missing data gracefully
+    avg_citations_message = (
+        f"with total {citations_count} citations"
+        if citations_count > 0
+        else "but citation data is unavailable or not reported"
+    )
+    fields_message = (
+        f"The journal focuses on fields such as {', '.join(fields_of_research)}."
+        if fields_of_research and fields_of_research[0] != "Unknown"
+        else "The journal's fields of research are not well-defined."
+    )
+    doaj_message = (
+        f"It’s {'listed' if is_in_doaj else 'not listed'} on a trusted journal directory (DOAJ), "
+        f"{'which adds to its credibility' if is_in_doaj else 'which raises some questions about its standards'}."
+    )
+    publisher_message = (
+        f"It’s run by {publisher}, which is {'widely known and trusted' if confidence >= 70 else 'not widely known or trusted'}."
+    )
+    works_message = (
+        f"The journal has published {works_count} works in total."
+        if works_count > 0
+        else "The journal's publication volume is not reported."
+    )
+
+    # Generate confidence-based reasoning
+    if confidence >= 60:
+        confidence_message = f"We’re {confidence}% sure that the journal '{title}' is trustworthy because it has strong signs of quality."
+    elif confidence > 30:
+        confidence_message = f"We’re only {confidence}% sure about the journal '{title}' because it shows some mixed signs."
+    else:
+        confidence_message = f"We’re only {confidence}% confident in the journal '{title}' because it has serious red flags."
+
+    # Combine all messages into a single reason
+    return (
+        f"{confidence_message} {publisher_message} {fields_message} "
+        f"The journal’s articles are often read and cited {avg_citations_message}. "
+        f"{doaj_message} {works_message}"
+    )
 
 def generate_paper_reason(confidence, metadata):
     """Generate a reason for the paper's legitimacy based on confidence and metadata."""
-    if confidence >= 60:
-        confidence_message = f"We’re {confidence}% sure this paper is trustworthy because it has strong signs of quality."
-        publisher_message = f"It’s published by {metadata.get('publisher', 'an unknown publisher')}, which is {'a well-known and trusted name' if confidence >= 70 else 'not widely known or trusted'}."
-        author_message = f"The authors {'are verified with IDs' if metadata.get('orcid_presence', 'No') == 'Yes' else 'lack verification IDs'}, {'making them more credible' if metadata.get('orcid_presence', 'No') == 'Yes' else 'which raises some questions'}."
-        doaj_message = f"The journal is {'on a trusted list (DOAJ)' if metadata.get('is_in_doaj', False) else 'not on a trusted list (DOAJ)'}, {'adding to its reliability' if metadata.get('is_in_doaj', False) else 'making it less certain'}."
-        citation_message = f"The paper is {'often read' if metadata.get('cited_by_count', 0) > 5 else 'not widely read'} by researchers, with {round(float(metadata.get('cited_by_count', 0)), 2)} citations per year."
-        trend_message = f"The authors have {'a steady record' if 'works' in metadata.get('publication_trend', '') else 'an unclear record'} of publishing."
-    elif confidence > 30:
-        confidence_message = f"We’re only {confidence}% sure about this paper because it shows some mixed signs."
-        publisher_message = f"The publisher, {metadata.get('publisher', 'unknown')}, {'is somewhat trusted' if confidence >= 50 else 'isn’t well-known'}, which makes us cautious."
-        author_message = f"The authors {'are verified with IDs' if metadata.get('orcid_presence', 'No') == 'Yes' else 'lack verification IDs'}, {'which is good' if metadata.get('orcid_presence', 'No') == 'Yes' else 'which raises concerns'}."
-        doaj_message = f"The journal is {'on a trusted list (DOAJ)' if metadata.get('is_in_doaj', False) else 'not on a trusted list (DOAJ)'}, {'which is positive' if metadata.get('is_in_doaj', False) else 'which makes it less reliable'}."
-        citation_message = f"The paper gets {round(float(metadata.get('cited_by_count', 0)), 2)} citations per year, showing {'some' if metadata.get('cited_by_count', 0) > 2 else 'very little'} attention from researchers."
-        trend_message = f"The authors have {'a steady' if 'works' in metadata.get('publication_trend', '') else 'an unclear'} publishing record."
-    else:
-        confidence_message = f"We’re only {confidence}% confident in this paper because it has serious red flags."
-        publisher_message = f"The publisher, {metadata.get('publisher', 'unknown')}, is not trusted, which suggests it might not be reliable."
-        author_message = f"The authors {'lack verification IDs' if metadata.get('orcid_presence', 'No') == 'No' else 'are verified with IDs'}, {'making it very questionable' if metadata.get('orcid_presence', 'No') == 'No' else 'but this alone isn’t enough'}."
-        doaj_message = f"The journal is {'not on a trusted list (DOAJ)' if not metadata.get('is_in_doaj', False) else 'on a trusted list (DOAJ)'}, {'which raises major concerns' if not metadata.get('is_in_doaj', False) else 'but this doesn’t make it trustworthy'}."
-        citation_message = f"The paper gets {round(float(metadata.get('cited_by_count', 0)), 2)} citations per year, meaning it’s {'rarely read' if metadata.get('cited_by_count', 0) < 2 else 'not widely read'} by researchers."
-        trend_message = f"The authors have {'an unclear' if 'N/A' in metadata.get('publication_trend', '') else 'a limited'} publishing record."
+    title = metadata.get('title', 'an unknown title')
+    journal_issn = metadata.get('journal_issn', 'Unknown')
+    publication_year = metadata.get('publication_year', 'Unknown')
+    cited_by_count = metadata.get('cited_by_count', 0)
+    author_count = metadata.get('author_count', 0)
+    is_in_doaj = metadata.get('is_in_doaj', False)
+    publisher = metadata.get('publisher') or 'an unknown publisher'  # Fix for None or missing publisher
+    avg_author_publications = metadata.get('avg_author_publications', 0)
+    avg_author_cited_by_count = metadata.get('avg_author_cited_by_count', 0)
+    avg_author_2yr_citedness = metadata.get('avg_author_2yr_citedness', 0)
+    orcid_presence = metadata.get('orcid_presence', 'No')
+    top_concepts = metadata.get('top_concepts', 'Unknown')
+    publication_trend = metadata.get('publication_trend', 'Unknown')
 
-    return f"{confidence_message} {publisher_message} {author_message} {doaj_message} {citation_message} {trend_message}"
+    # Handle missing or unknown data gracefully
+    citation_message = (
+        f"The paper has been cited {cited_by_count} times"
+        if cited_by_count > 0
+        else "but citation data is unavailable or not reported"
+    )
+    author_message = (
+        f"The paper has {author_count} authors, {'most of whom have verified ORCID IDs' if orcid_presence == 'Yes' else 'but author verification is lacking'}."
+    )
+    publisher_message = (
+        f"It’s published by {publisher}, which is {'widely known and trusted' if confidence >= 70 else 'not widely known or trusted'}."
+    )
+    doaj_message = (
+        f"The journal is {'listed' if is_in_doaj else 'not listed'} on a trusted directory (DOAJ), "
+        f"{'which adds to its credibility' if is_in_doaj else 'which raises some questions about its standards'}."
+    )
+    author_stats_message = (
+        f"The authors have an average of {avg_author_publications} publications and {avg_author_cited_by_count} citations, "
+        f"with a 2-year mean citedness of {avg_author_2yr_citedness}."
+        if avg_author_publications > 0 or avg_author_cited_by_count > 0
+        else "Author-level metrics are unavailable or not reported."
+    )
+    concepts_message = (
+        f"The paper focuses on concepts such as {top_concepts}."
+        if top_concepts != "Unknown"
+        else "The paper's key concepts are not well-defined."
+    )
+    publication_trend_message = (
+        f"The authors are affiliated with institutions such as {publication_trend.split(';')[0]}."
+        if publication_trend != "Unknown"
+        else "The authors' institutional affiliations are not well-documented."
+    )
+    journal_message = (
+        f"The paper was published in a journal with ISSN {journal_issn} in the year {publication_year}."
+        if journal_issn != "Unknown" and publication_year != "Unknown"
+        else "The journal's ISSN or publication year is not well-documented."
+    )
+
+    # Generate confidence-based reasoning
+    if confidence >= 60:
+        confidence_message = f"We’re {confidence}% sure that the paper '{title}' is trustworthy because it has strong signs of quality."
+    elif confidence > 30:
+        confidence_message = f"We’re only {confidence}% sure about the paper '{title}' because it shows some mixed signs."
+    else:
+        confidence_message = f"We’re only {confidence}% confident in the paper '{title}' because it has serious red flags."
+
+    # Combine all messages into a single reason
+    return (
+        f"{confidence_message} {publisher_message} {journal_message} {citation_message}. "
+        f"{author_message} {doaj_message} {author_stats_message} "
+        f"{concepts_message} {publication_trend_message}"
+    )
 
 if __name__ == "__main__":
     main()

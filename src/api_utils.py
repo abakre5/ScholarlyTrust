@@ -40,19 +40,30 @@ def get_journal_metadata(issn):
             data = response.json()
             if data['meta']['count'] > 0:
                 source = data['results'][0]
-                total_works = sum(count['works_count'] for count in source.get('counts_by_year', []))
-                works_url = f"https://api.openalex.org/works?filter=source.id:{source['id']}&per-page=100"
-                works_response = requests.get(works_url)
-                avg_citations = 0
-                if works_response.status_code == 200:
-                    works_data = works_response.json()
-                    citations = [work.get('cited_by_count', 0) for work in works_data.get('results', [])]
-                    avg_citations = np.mean(citations) if citations else 0
+                # Extract fields
+                title = source.get('display_name', 'Unknown')
+                publisher = source.get('host_organization_name', 'Unknown')
+                homepage_url = source.get('homepage_url', 'N/A')
+                is_in_doaj = source.get('is_in_doaj', False)
+                is_open_access = source.get('is_oa', False)
+                country_code = source.get('country_code', 'Unknown')
+                works_count = source.get('works_count', 0)
+                cited_by_count = source.get('cited_by_count', 0)
+                fields_of_research = [
+                    topic.get('display_name', 'Unknown')
+                    for topic in source.get('topics', [])
+                ]
+
                 return {
-                    'total_works': total_works,
-                    'avg_citations': avg_citations,
-                    'is_in_doaj': source.get('is_in_doaj', False),
-                    'publisher': source.get('publisher', 'Unknown')
+                    "title": title,
+                    "publisher": publisher,
+                    "homepage_url": homepage_url,
+                    "is_in_doaj": is_in_doaj,
+                    "is_open_access": is_open_access,
+                    "country_code": country_code,
+                    "works_count": works_count,
+                    "cited_by_count": cited_by_count,
+                    "fields_of_research": fields_of_research,
                 }
         return None
     except Exception as e:
@@ -71,7 +82,6 @@ def get_author_metadata_for_paper(paper_data):
         orcids = []
         concepts = []
         publication_trends = []
-        external_recognitions = []
         current_year = 2025
 
         for author in authors:
@@ -104,8 +114,7 @@ def get_author_metadata_for_paper(paper_data):
             'avg_author_2yr_citedness': np.mean(two_year_citedness) if two_year_citedness else 0,
             'orcid_presence': 'Yes' if np.mean(orcids) > 0 else 'No',
             'top_concepts': "; ".join(set(concepts)),
-            'publication_trend': "; ".join(set(publication_trends)),
-            'external_recognition': "; ".join(set(external_recognitions)) if external_recognitions else "None"
+            'publication_trend': "; ".join(set(publication_trends))
         }
     except Exception as e:
         st.error(f"Failed to fetch author metadata: {e}")
@@ -141,7 +150,6 @@ def get_paper_metadata(paper_input, input_type):
                     'cited_by_count': normalized_citations,
                     'author_count': len(paper.get('authorships', [])),
                     'is_in_doaj': paper.get('primary_location', {}).get('source', {}).get('is_in_doaj', False),
-                    'abstract': paper.get('abstract_inverted_index', 'No abstract available'),
                     'publisher': paper.get('primary_location', {}).get('source', {}).get('host_organization_name', 'Unknown')
                 }
 
@@ -156,8 +164,7 @@ def get_paper_metadata(paper_input, input_type):
                         'avg_author_2yr_citedness': 0,
                         'orcid_presence': 'No',
                         'top_concepts': 'Unknown',
-                        'publication_trend': 'N/A',
-                        'external_recognition': 'None'
+                        'publication_trend': 'N/A'
                     })
 
                 return paper_metadata
@@ -167,7 +174,33 @@ def get_paper_metadata(paper_input, input_type):
         return None
 
 def get_journal_confidence(metadata):
-    prompt = f"You are an expert in academic publishing. Provide a confidence score (0-100) indicating the likelihood that the journal is legitimate (higher score = more legitimate). Assign weights: publisher reputation (40%, high for American Society for Microbiology, Nature, Elsevier, Springer, Wiley), DOAJ indexing (20%), citation counts (25%), publication volume (15%). Recognize predatory journals (e.g., ISSN 2313-1799) by low citations, lack of DOAJ indexing, or questionable publishers. A journal is legitimate if published by reputable publishers (e.g., ASM for ISSN 1092-2172) or has high citations. Metadata: Total Works: {metadata['total_works']}, Average Citations: {metadata['avg_citations']}, In DOAJ: {metadata['is_in_doaj']}, Publisher: {metadata['publisher']}. **Respond with only a single integer between 0 and 100, with no additional text or explanation.**"
+    prompt = f"""
+    You are an expert in academic publishing. Evaluate the legitimacy of the following journal and provide a confidence score (0-100), where a higher score indicates greater legitimacy. 
+    Consider the following factors:
+    1. Publisher reputation: Journals published by reputable organizations (e.g., Nature Portfolio, Elsevier, Springer, Wiley, American Society for Microbiology) are more likely to be legitimate.
+    2. DOAJ indexing: Journals listed in the Directory of Open Access Journals (DOAJ) are more credible.
+    3. Citation impact: High citation counts indicate greater influence and legitimacy.
+    4. Publication volume: A higher number of works published can indicate credibility.
+    5. Fields of research: Journals with well-defined and respected fields of research are more likely to be legitimate.
+
+    Recognize predatory journals by:
+    - Low citation counts.
+    - Lack of DOAJ indexing.
+    - Questionable or unknown publishers.
+
+    Use the following metadata to make your decision:
+    - Title: {metadata['title']}
+    - Publisher: {metadata['publisher']}
+    - Homepage URL: {metadata['homepage_url']}
+    - In DOAJ: {metadata['is_in_doaj']}
+    - Is Open Access: {metadata['is_open_access']}
+    - Country Code: {metadata['country_code']}
+    - Total Works: {metadata['works_count']}
+    - Cited By Count: {metadata['cited_by_count']}
+    - Fields of Research: {', '.join(metadata['fields_of_research'])}
+
+    **Respond with only a single integer between 0 and 100, with no additional text or explanation.**
+    """
     try:
         response = anthropic.messages.create(
             model=ANTHROPIC_MODEL,
@@ -189,9 +222,9 @@ def get_journal_confidence(metadata):
 def get_paper_confidence(metadata):
     new_researcher = metadata.get('avg_author_publications', 0) < 5
     if new_researcher:
-        prompt = f"You are an expert in academic publishing. Provide a confidence score (0-100) indicating the likelihood that the paper is legitimate (higher score = more legitimate). For new researchers (low publication count), assign weights: ORCID presence (35%), publisher reputation (30%, high for American Society for Microbiology, Nature, Elsevier, Springer, Wiley), external recognition (25%, citations/co-authorship in reputable venues as proxy for media coverage), publication trends (5%), concept alignment (5%). Recognize predatory papers (e.g., ISSN 2313-1799) by non-DOAJ journals, no ORCID, or misaligned concepts, but avoid flagging new researchers unless clear evidence exists. A paper is legitimate if published by reputable publishers (e.g., ASM for ISSN 1092-2172) or authors have ORCID. Ensure top concepts align with paper title: {metadata['title']}. Metadata: Title: {metadata['title']}, Journal ISSN: {metadata['journal_issn'] or 'Unknown'}, Publication Year: {metadata['publication_year']}, Cited By Count (per year): {metadata['cited_by_count']}, Author Count: {metadata['author_count']}, In DOAJ: {metadata['is_in_doaj']}, Abstract: {metadata['abstract']}, Average Author Publication Count (normalized): {metadata['avg_author_publications']}, Average Author Total Citations (normalized): {metadata['avg_author_cited_by_count']}, Average Author 2-Year Mean Citedness: {metadata['avg_author_2yr_citedness']}, ORCID Presence: {metadata['orcid_presence']}, Top Author Concepts: {metadata['top_concepts']}, Author Publication Trend (Last 5 Years): {metadata['publication_trend']}, External Recognition (Citations/Co-authorship): {metadata['external_recognition']}, Publisher: {metadata['publisher']}, New Researcher: {'Yes' if new_researcher else 'No'}. **Respond with only a single integer between 0 and 100, with no additional text or explanation.**"
+        prompt = f"You are an expert in academic publishing. Provide a confidence score (0-100) indicating the likelihood that the paper is legitimate (higher score = more legitimate). For new researchers (low publication count), assign weights: ORCID presence (35%), publisher reputation (30%, high for American Society for Microbiology, Nature, Elsevier, Springer, Wiley), external recognition (25%, citations/co-authorship in reputable venues as proxy for media coverage), publication trends (5%), concept alignment (5%). Recognize predatory papers (e.g., ISSN 2313-1799) by non-DOAJ journals, no ORCID, or misaligned concepts, but avoid flagging new researchers unless clear evidence exists. A paper is legitimate if published by reputable publishers (e.g., ASM for ISSN 1092-2172) or authors have ORCID. Ensure top concepts align with paper title: {metadata['title']}. Metadata: Title: {metadata['title']}, Journal ISSN: {metadata['journal_issn'] or 'Unknown'}, Publication Year: {metadata['publication_year']}, Cited By Count (per year): {metadata['cited_by_count']}, Author Count: {metadata['author_count']}, In DOAJ: {metadata['is_in_doaj']}, Average Author Publication Count (normalized): {metadata['avg_author_publications']}, Average Author Total Citations (normalized): {metadata['avg_author_cited_by_count']}, Average Author 2-Year Mean Citedness: {metadata['avg_author_2yr_citedness']}, ORCID Presence: {metadata['orcid_presence']}, Top Author Concepts: {metadata['top_concepts']}, Author Publication Trend (Last 5 Years): {metadata['publication_trend']}, Publisher: {metadata['publisher']}, New Researcher: {'Yes' if new_researcher else 'No'}. **Respond with only a single integer between 0 and 100, with no additional text or explanation.**"
     else:
-        prompt = f"You are an expert in academic publishing. Provide a confidence score (0-100) indicating the likelihood that the paper is legitimate (higher score = more legitimate). Assign weights: ORCID presence (25%), external recognition (25%, citations/co-authorship in reputable venues as proxy for media coverage), publication trends (10%), concept alignment (5%), publisher reputation (25%, high for American Society for Microbiology, Nature, Elsevier, Springer, Wiley), DOAJ indexing (10%). Recognize predatory papers (e.g., ISSN 2313-1799) by non-DOAJ journals, no ORCID, or misaligned concepts. A paper is legitimate if authors have ORCID, external recognition, or published by reputable publishers (e.g., ASM for ISSN 1092-2172). Ensure top concepts align with paper title: {metadata['title']}. Metadata: Title: {metadata['title']}, Journal ISSN: {metadata['journal_issn'] or 'Unknown'}, Publication Year: {metadata['publication_year']}, Cited By Count (per year): {metadata['cited_by_count']}, Author Count: {metadata['author_count']}, In DOAJ: {metadata['is_in_doaj']}, Abstract: {metadata['abstract']}, Average Author Publication Count (normalized): {metadata['avg_author_publications']}, Average Author Total Citations (normalized): {metadata['avg_author_cited_by_count']}, Average Author 2-Year Mean Citedness: {metadata['avg_author_2yr_citedness']}, ORCID Presence: {metadata['orcid_presence']}, Top Author Concepts: {metadata['top_concepts']}, Author Publication Trend (Last 5 Years): {metadata['publication_trend']}, External Recognition (Citations/Co-authorship): {metadata['external_recognition']}, Publisher: {metadata['publisher']}, New Researcher: {'Yes' if new_researcher else 'No'}. **Respond with only a single integer between 0 and 100, with no additional text or explanation.**"
+        prompt = f"You are an expert in academic publishing. Provide a confidence score (0-100) indicating the likelihood that the paper is legitimate (higher score = more legitimate). Assign weights: ORCID presence (25%), external recognition (25%, citations/co-authorship in reputable venues as proxy for media coverage), publication trends (10%), concept alignment (5%), publisher reputation (25%, high for American Society for Microbiology, Nature, Elsevier, Springer, Wiley), DOAJ indexing (10%). Recognize predatory papers (e.g., ISSN 2313-1799) by non-DOAJ journals, no ORCID, or misaligned concepts. A paper is legitimate if authors have ORCID, external recognition, or published by reputable publishers (e.g., ASM for ISSN 1092-2172). Ensure top concepts align with paper title: {metadata['title']}. Metadata: Title: {metadata['title']}, Journal ISSN: {metadata['journal_issn'] or 'Unknown'}, Publication Year: {metadata['publication_year']}, Cited By Count (per year): {metadata['cited_by_count']}, Author Count: {metadata['author_count']}, In DOAJ: {metadata['is_in_doaj']}, Average Author Publication Count (normalized): {metadata['avg_author_publications']}, Average Author Total Citations (normalized): {metadata['avg_author_cited_by_count']}, Average Author 2-Year Mean Citedness: {metadata['avg_author_2yr_citedness']}, ORCID Presence: {metadata['orcid_presence']}, Top Author Concepts: {metadata['top_concepts']}, Author Publication Trend (Last 5 Years): {metadata['publication_trend']}, Publisher: {metadata['publisher']}, New Researcher: {'Yes' if new_researcher else 'No'}. **Respond with only a single integer between 0 and 100, with no additional text or explanation.**"
     try:
         response = anthropic.messages.create(
             model=ANTHROPIC_MODEL,
