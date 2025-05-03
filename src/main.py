@@ -5,7 +5,7 @@ def main():
     st.title("Journal and Research Paper Legitimacy Checker")
     st.write("Check the legitimacy of a journal (by ISSN) or a research paper (by DOI or title, including author legitimacy) using Claude 3.5 Sonnet.")
     
-    check_type = st.radio("Select check type:", ("Journal", "Research Paper"))
+    check_type = st.radio("Select check type:", ("Research Paper", "Journal"))
     
     if check_type == "Journal":
         issn_input = st.text_input("Enter journal ISSN (e.g., 1092-2172 for MMBR, 2313-1799 for predatory)", "")
@@ -16,10 +16,12 @@ def main():
                 if metadata and isinstance(metadata, dict):
                     try:
                         confidence = get_journal_confidence(metadata)
-                        if confidence >= 50:
+                        if confidence >= 60:
                             st.success(f"This journal is likely legitimate with {confidence}% confidence.")
+                        elif confidence > 30 and confidence < 60:
+                            st.warning(f"This journal is questionable with {confidence}% confidence.")
                         else:
-                            st.warning(f"This journal is likely predatory with {100 - confidence}% confidence.")
+                            st.error(f"This journal is likely predatory with {confidence}% confidence.")
                         st.write("Reason: Claude 3.5 Sonnet AI analysis based on metadata.")
                     except Exception as e:
                         st.error(f"Failed to get confidence score: {e}")
@@ -44,7 +46,7 @@ def main():
                 st.error("Please enter a valid ISSN.")
     
     else:
-        input_type = st.radio("Select paper input type:", ("DOI", "Title"))
+        input_type = st.radio("Select paper input type:", ("Title", "DOI"))
         paper_input = st.text_input(f"Enter paper {input_type} (e.g., DOI: 10.1128/mmbr.00144-23, Title: Microbiology of human spaceflight)", "")
         if st.button("Check Paper"):
             if paper_input:
@@ -53,10 +55,12 @@ def main():
                 if metadata and isinstance(metadata, dict):
                     try:
                         confidence = get_paper_confidence(metadata)
-                        if confidence >= 50:
+                        if confidence >= 60:
                             st.success(f"This paper is likely legitimate with {confidence}% confidence.")
+                        elif confidence > 30 and confidence < 60:
+                            st.warning(f"This paper is questionable with {confidence}% confidence.")
                         else:
-                            st.warning(f"This paper is likely from a predatory source with {100 - confidence}% confidence.")
+                            st.error(f"This paper is likely predatory with {confidence}% confidence.")
                         st.write("Reason: Claude 3.5 Sonnet AI analysis based on paper and author metadata.")
                     except Exception as e:
                         st.error(f"Failed to get confidence score: {e}")
