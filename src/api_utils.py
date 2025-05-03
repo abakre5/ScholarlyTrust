@@ -51,7 +51,8 @@ def get_journal_metadata(issn):
                 return {
                     'total_works': total_works,
                     'avg_citations': avg_citations,
-                    'is_in_doaj': source.get('is_in_doaj', False)
+                    'is_in_doaj': source.get('is_in_doaj', False),
+                    'publisher': source.get('publisher', 'Unknown')
                 }
         return None
     except Exception as e:
@@ -70,6 +71,7 @@ def get_author_metadata_for_paper(paper_data):
         orcids = []
         concepts = []
         publication_trends = []
+        current_year = 2025
         for author in authors:
             author_id = author.get('author', {}).get('id', '').split('/')[-1]
             if author_id:
@@ -77,14 +79,20 @@ def get_author_metadata_for_paper(paper_data):
                 response = requests.get(url)
                 if response.status_code == 200:
                     author_data = response.json()
-                    publication_counts.append(author_data.get('works_count', 0))
+                    works_count = author_data.get('works_count', 0)
+                    publication_year = author_data.get('last_known_institution', {}).get('publication_year', current_year) or current_year
+                    career_length = max(1, current_year - publication_year)
+                    normalized_works = works_count / career_length
+                    publication_counts.append(normalized_works)
                     h_indices.append(author_data.get('h_index', 0))
-                    cited_by_counts.append(author_data.get('cited_by_count', 0))
+                    cited_by_count = author_data.get('cited_by_count', 0)
+                    normalized_citations = cited_by_count / career_length if career_length > 0 else cited_by_count
+                    cited_by_counts.append(normalized_citations)
                     two_year_citedness.append(author_data.get('summary_stats', {}).get('2yr_mean_citedness', 0))
                     orcids.append(1 if author_data.get('orcid') else 0)
-                    author_concepts = [f"{concept.get('display_name', 'Unknown')} (score: {concept.get('score', 0)})" for concept in author_data.get('x_concepts', [])]
+                    author_concepts = [f"{concept.get('display_name', 'Unknown')} (score: {concept.get('score', 0)})" for concept in author_data.get('x_concepts', []) if concept.get('score', 0) > 50]
                     concepts.append("; ".join(author_concepts) if author_concepts else "Unknown")
-                    yearly_counts = author_data.get('counts_by_year', [])
+                    yearly_counts = [count for count in author_data.get('counts_by_year', []) if count.get('works_count', 0) > 0]
                     trend = ", ".join([f"{count.get('year', 'N/A')}: {count.get('works_count', 0)} works" for count in yearly_counts[-5:]])
                     publication_trends.append(trend if trend else "N/A")
         if publication_counts:
@@ -114,16 +122,20 @@ def get_paper_metadata(paper_input, input_type):
             if data['meta']['count'] > 0:
                 paper = data['results'][0]
                 journal_issn = paper.get('host_venue', {}).get('issn_l', '') or paper.get('host_venue', {}).get('issn', [''])[0]
+                publication_year = paper.get('publication_year', 0)
+                cited_by_count = paper.get('cited_by_count', 0)
+                years_since_publication = max(1, 2025 - publication_year)
+                normalized_citations = cited_by_count / years_since_publication
                 paper_metadata = {
                     'title': paper.get('title', 'Unknown'),
                     'journal_issn': journal_issn,
-                    'publication_year': paper.get('publication_year', 0),
-                    'cited_by_count': paper.get('cited_by_count', 0),
+                    'publication_year': publication_year,
+                    'cited_by_count': normalized_citations,
                     'author_count': len(paper.get('authorships', [])),
                     'is_in_doaj': is_in_doaj(journal_issn),
-                    'abstract': paper.get('abstract', 'No abstract available')[:500]  # Limit to reduce tokens
+                    'abstract': paper.get('abstract', 'No abstract available')[:500],
+                    'publisher': paper.get('host_venue', {}).get('publisher', 'Unknown')
                 }
-                # Fetch author metadata
                 author_metadata = get_author_metadata_for_paper(paper)
                 if author_metadata:
                     paper_metadata.update(author_metadata)
@@ -144,7 +156,7 @@ def get_paper_metadata(paper_input, input_type):
         return None
 
 def get_journal_confidence(metadata):
-    prompt = f"You are an expert in academic publishing. Given the following journal metadata, provide a confidence score (0-100) indicating the likelihood that the journal is legitimate (higher score = more legitimate). Consider factors like DOAJ indexing, citation counts, and publication volume to assess if it exhibits predatory behavior (e.g., low peer review quality, high fees). Metadata: Total Works: {metadata['total_works']}, Average Citations: {metadata['avg_citations']}, In DOAJ: {metadata['is_in_doaj']}. **Respond with only a single integer between 0 and 100, with no additional text or explanation.**"
+    prompt = f"You are an expert in academic publishing. Given the following journal metadata, provide a confidence score (0-100) indicating the likelihood that the journal is legitimate (higher score = more legitimate). Assign weights: publisher reputation (35%, high for publishers like ASM, Nature, Elsevier), DOAJ indexing (25%), citation counts (25%), publication volume (15%). Recognize predatory journals (e.g., ISSN 2313-1799) by low citations relative to works, lack of DOAJ indexing, or questionable publishers. A journal is legitimate if published by reputable publishers (e.g., ASM for ISSN 1092-2172) or has high citations. Metadata: Total Works: {metadata['total_works']}, Average Citations: {metadata['avg_citations']}, In DOAJ: {metadata['is_in_doaj']}, Publisher: {metadata['publisher']}. **Respond with only a single integer between 0 and 100, with no additional text or explanation.**"
     try:
         response = anthropic.messages.create(
             model=ANTHROPIC_MODEL,
@@ -153,17 +165,19 @@ def get_journal_confidence(metadata):
                 {"role": "user", "content": prompt}
             ]
         )
-        # Extract the first integer from the response
         text = response.content[0].text.strip()
         match = re.search(r'\d+', text)
         if match:
-            return int(match.group())
+            raw_score = int(match.group())
+            # Normalize score with logistic function
+            normalized_score = int(100 / (1 + np.exp(-0.1 * (raw_score - 50))))
+            return normalized_score
         raise ValueError("No integer found in Claude response")
     except Exception as e:
         raise Exception(f"Anthropic API error: {e}")
 
 def get_paper_confidence(metadata):
-    prompt = f"You are an expert in academic publishing. Given the following research paper and author metadata, provide a confidence score (0-100) indicating the likelihood that the paper is legitimate (higher score = more legitimate). Consider paper factors (journal DOAJ indexing, citation counts, author count, publication year, abstract quality) and author factors (publication count, h-index, total citations, 2-year mean citedness, ORCID presence, research concepts, publication trends, but NOT affiliations) to assess if it comes from a predatory source (e.g., low peer review, questionable journal, authors with excessive low-quality publications). Metadata: Title: {metadata['title']}, Journal ISSN: {metadata['journal_issn'] or 'Unknown'}, Publication Year: {metadata['publication_year']}, Cited By Count: {metadata['cited_by_count']}, Author Count: {metadata['author_count']}, In DOAJ: {metadata['is_in_doaj']}, Abstract: {metadata['abstract']}, Average Author Publication Count: {metadata['avg_author_publications']}, Average Author H-Index: {metadata['avg_author_h_index']}, Average Author Total Citations: {metadata['avg_author_cited_by_count']}, Average Author 2-Year Mean Citedness: {metadata['avg_author_2yr_citedness']}, ORCID Presence: {metadata['orcid_presence']}, Top Author Concepts: {metadata['top_concepts']}, Author Publication Trend (Last 5 Years): {metadata['publication_trend']}. **Respond with only a single integer between 0 and 100, with no additional text or explanation.**"
+    prompt = f"You are an expert in academic publishing. Given the following research paper and author metadata, provide a confidence score (0-100) indicating the likelihood that the paper is legitimate (higher score = more legitimate). Assign weights: publisher reputation (30%, high for ASM, Nature, Elsevier), author h-index (25%), ORCID presence (20%), paper citations (15%), publication trends (10%). Recognize predatory papers (e.g., ISSN 2313-1799) by non-DOAJ journals, low author h-index, no ORCID, or misaligned concepts. A paper is legitimate if published by reputable publishers (e.g., ASM for ISSN 1092-2172) or authors have high h-index/ORCID. Ensure top concepts align with paper title: {metadata['title']}. Metadata: Title: {metadata['title']}, Journal ISSN: {metadata['journal_issn'] or 'Unknown'}, Publication Year: {metadata['publication_year']}, Cited By Count (per year): {metadata['cited_by_count']}, Author Count: {metadata['author_count']}, In DOAJ: {metadata['is_in_doaj']}, Abstract: {metadata['abstract']}, Average Author Publication Count (normalized): {metadata['avg_author_publications']}, Average Author H-Index: {metadata['avg_author_h_index']}, Average Author Total Citations (normalized): {metadata['avg_author_cited_by_count']}, Average Author 2-Year Mean Citedness: {metadata['avg_author_2yr_citedness']}, ORCID Presence: {metadata['orcid_presence']}, Top Author Concepts: {metadata['top_concepts']}, Author Publication Trend (Last 5 Years): {metadata['publication_trend']}, Publisher: {metadata['publisher']}. **Respond with only a single integer between 0 and 100, with no additional text or explanation.**"
     try:
         response = anthropic.messages.create(
             model=ANTHROPIC_MODEL,
@@ -172,11 +186,12 @@ def get_paper_confidence(metadata):
                 {"role": "user", "content": prompt}
             ]
         )
-        # Extract the first integer from the response
         text = response.content[0].text.strip()
         match = re.search(r'\d+', text)
         if match:
-            return int(match.group())
+            raw_score = int(match.group())
+            normalized_score = int(100 / (1 + np.exp(-0.1 * (raw_score - 50))))
+            return normalized_score
         raise ValueError("No integer found in Claude response")
     except Exception as e:
         raise Exception(f"Anthropic API error: {e}")

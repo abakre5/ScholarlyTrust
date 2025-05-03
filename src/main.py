@@ -11,11 +11,9 @@ def main():
         issn_input = st.text_input("Enter journal ISSN (e.g., 2313-1799)", "")
         if st.button("Check Journal"):
             if issn_input:
-                # Fetch journal metadata
                 metadata = get_journal_metadata(issn_input)
                 
                 if metadata and isinstance(metadata, dict):
-                    # Get confidence score from Claude
                     try:
                         confidence = get_journal_confidence(metadata)
                         if confidence >= 50:
@@ -27,7 +25,6 @@ def main():
                         st.error(f"Failed to get confidence score: {e}")
                         st.warning("Unable to assess journal legitimacy due to API error.")
                     
-                    # Display metadata explicitly as strings with type checking
                     st.subheader("Journal Metadata")
                     total_works = metadata.get('total_works', 'N/A')
                     avg_citations = metadata.get('avg_citations', 0)
@@ -39,22 +36,19 @@ def main():
                 else:
                     st.error("Journal not found in OpenAlex or metadata unavailable.")
                 
-                # Generate report for media
                 st.subheader("Investigation Summary")
                 st.write("This app uses Claude 3.5 Sonnet AI to analyze journal metadata, helping researchers avoid predatory publishing scams.")
             else:
                 st.error("Please enter a valid ISSN.")
     
-    else:  # Research Paper
+    else:
         input_type = st.radio("Select paper input type:", ("DOI", "Title"))
         paper_input = st.text_input(f"Enter paper {input_type} (e.g., DOI: 10.17487/IJST.2023.123456, Title: Blockchain Applications in IoT)", "")
         if st.button("Check Paper"):
             if paper_input:
-                # Fetch paper metadata, including author metadata
                 metadata = get_paper_metadata(paper_input, input_type.lower())
                 
                 if metadata and isinstance(metadata, dict):
-                    # Get confidence score from Claude, including author metadata
                     try:
                         confidence = get_paper_confidence(metadata)
                         if confidence >= 50:
@@ -66,7 +60,6 @@ def main():
                         st.error(f"Failed to get confidence score: {e}")
                         st.warning("Unable to assess paper legitimacy due to API error.")
                     
-                    # Display paper metadata explicitly as strings with type checking
                     st.subheader("Paper Metadata")
                     title = metadata.get('title', 'Unknown')
                     journal_issn = metadata.get('journal_issn', 'Unknown')
@@ -81,7 +74,6 @@ def main():
                     st.write(f"**Author Count**: {str(author_count)}")
                     st.write(f"**In DOAJ**: {'Yes' if is_in_doaj else 'No'}")
                     
-                    # Display author metadata explicitly as strings with type checking
                     st.subheader("Author Metadata (Aggregated)")
                     avg_author_publications = metadata.get('avg_author_publications', 'N/A')
                     avg_author_h_index = metadata.get('avg_author_h_index', 'N/A')
@@ -98,7 +90,6 @@ def main():
                     st.write(f"**Top Concepts**: {str(top_concepts)}")
                     st.write(f"**Publication Trend (Last 5 Years)**: {str(publication_trend)}")
                     
-                    # Generate report for media
                     st.subheader("Investigation Summary")
                     st.write("This app uses Claude 3.5 Sonnet AI to analyze paper and author metadata, helping researchers avoid fraudulent publications.")
                 else:
