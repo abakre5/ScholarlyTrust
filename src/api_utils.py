@@ -33,7 +33,7 @@ def is_in_doaj(journal_issn):
         return False
 
 def get_journal_metadata(issn):
-    url = f"https://api.openalex.org/sources?filter=ids.value:{issn},ids.schema:ISSN"
+    url = f"https://api.openalex.org/sources?filter=issn:{issn}"
     try:
         response = requests.get(url)
         if response.status_code == 200:
