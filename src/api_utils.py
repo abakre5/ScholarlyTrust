@@ -3,6 +3,7 @@ import streamlit as st
 from anthropic import Anthropic
 import numpy as np
 import os
+import re
 from config import ANTHROPIC_MODEL
 
 # Initialize Anthropic client
@@ -64,8 +65,11 @@ def get_author_metadata_for_paper(paper_data):
             return None
         publication_counts = []
         h_indices = []
-        affiliations = []
-        avg_citations_list = []
+        cited_by_counts = []
+        two_year_citedness = []
+        orcids = []
+        concepts = []
+        publication_trends = []
         for author in authors:
             author_id = author.get('author', {}).get('id', '').split('/')[-1]
             if author_id:
@@ -75,21 +79,23 @@ def get_author_metadata_for_paper(paper_data):
                     author_data = response.json()
                     publication_counts.append(author_data.get('works_count', 0))
                     h_indices.append(author_data.get('h_index', 0))
-                    affs = [inst.get('display_name', 'Unknown') for inst in author_data.get('affiliations', [])]
-                    affiliations.append(", ".join(affs) if affs else "Unknown")
-                    works_url = f"https://api.openalex.org/works?filter=author.id:{author_id}&per-page=100"
-                    works_response = requests.get(works_url)
-                    if works_response.status_code == 200:
-                        works_data = works_response.json()
-                        citations = [work.get('cited_by_count', 0) for work in works_data.get('results', [])]
-                        avg_citations = np.mean(citations) if citations else 0
-                        avg_citations_list.append(avg_citations)
+                    cited_by_counts.append(author_data.get('cited_by_count', 0))
+                    two_year_citedness.append(author_data.get('summary_stats', {}).get('2yr_mean_citedness', 0))
+                    orcids.append(1 if author_data.get('orcid') else 0)
+                    author_concepts = [f"{concept.get('display_name', 'Unknown')} (score: {concept.get('score', 0)})" for concept in author_data.get('x_concepts', [])]
+                    concepts.append("; ".join(author_concepts) if author_concepts else "Unknown")
+                    yearly_counts = author_data.get('counts_by_year', [])
+                    trend = ", ".join([f"{count.get('year', 'N/A')}: {count.get('works_count', 0)} works" for count in yearly_counts[-5:]])
+                    publication_trends.append(trend if trend else "N/A")
         if publication_counts:
             return {
                 'avg_author_publications': np.mean(publication_counts),
                 'avg_author_h_index': np.mean(h_indices),
-                'author_affiliations': "; ".join(set(affiliations)),
-                'avg_author_citations': np.mean(avg_citations_list) if avg_citations_list else 0
+                'avg_author_cited_by_count': np.mean(cited_by_counts),
+                'avg_author_2yr_citedness': np.mean(two_year_citedness),
+                'orcid_presence': 'Yes' if np.mean(orcids) > 0 else 'No',
+                'top_concepts': "; ".join(set(concepts)),
+                'publication_trend': "; ".join(set(publication_trends))
             }
         return None
     except Exception as e:
@@ -125,8 +131,11 @@ def get_paper_metadata(paper_input, input_type):
                     paper_metadata.update({
                         'avg_author_publications': 0,
                         'avg_author_h_index': 0,
-                        'author_affiliations': 'Unknown',
-                        'avg_author_citations': 0
+                        'avg_author_cited_by_count': 0,
+                        'avg_author_2yr_citedness': 0,
+                        'orcid_presence': 'No',
+                        'top_concepts': 'Unknown',
+                        'publication_trend': 'N/A'
                     })
                 return paper_metadata
         return None
@@ -135,7 +144,7 @@ def get_paper_metadata(paper_input, input_type):
         return None
 
 def get_journal_confidence(metadata):
-    prompt = f"You are an expert in academic publishing. Given the following journal metadata, provide a confidence score (0-100) indicating the likelihood that the journal is legitimate (higher score = more legitimate). Consider factors like DOAJ indexing, citation counts, and publication volume to assess if it exhibits predatory behavior (e.g., low peer review quality, high fees). Metadata: Total Works: {metadata['total_works']}, Average Citations: {metadata['avg_citations']}, In DOAJ: {metadata['is_in_doaj']}. Respond with a single number representing the confidence score."
+    prompt = f"You are an expert in academic publishing. Given the following journal metadata, provide a confidence score (0-100) indicating the likelihood that the journal is legitimate (higher score = more legitimate). Consider factors like DOAJ indexing, citation counts, and publication volume to assess if it exhibits predatory behavior (e.g., low peer review quality, high fees). Metadata: Total Works: {metadata['total_works']}, Average Citations: {metadata['avg_citations']}, In DOAJ: {metadata['is_in_doaj']}. **Respond with only a single integer between 0 and 100, with no additional text or explanation.**"
     try:
         response = anthropic.messages.create(
             model=ANTHROPIC_MODEL,
@@ -144,12 +153,17 @@ def get_journal_confidence(metadata):
                 {"role": "user", "content": prompt}
             ]
         )
-        return int(response.content[0].text.strip())
+        # Extract the first integer from the response
+        text = response.content[0].text.strip()
+        match = re.search(r'\d+', text)
+        if match:
+            return int(match.group())
+        raise ValueError("No integer found in Claude response")
     except Exception as e:
         raise Exception(f"Anthropic API error: {e}")
 
 def get_paper_confidence(metadata):
-    prompt = f"You are an expert in academic publishing. Given the following research paper and author metadata, provide a confidence score (0-100) indicating the likelihood that the paper is legitimate (higher score = more legitimate). Consider paper factors (journal DOAJ indexing, citation counts, author count, publication year, abstract quality) and author factors (publication count, h-index, affiliations, average citations) to assess if it comes from a predatory source (e.g., low peer review, questionable journal, authors with excessive low-quality publications). Metadata: Title: {metadata['title']}, Journal ISSN: {metadata['journal_issn'] or 'Unknown'}, Publication Year: {metadata['publication_year']}, Cited By Count: {metadata['cited_by_count']}, Author Count: {metadata['author_count']}, In DOAJ: {metadata['is_in_doaj']}, Abstract: {metadata['abstract']}, Average Author Publication Count: {metadata['avg_author_publications']}, Average Author H-Index: {metadata['avg_author_h_index']}, Author Affiliations: {metadata['author_affiliations']}, Average Author Citations: {metadata['avg_author_citations']}. Respond with a single number representing the confidence score."
+    prompt = f"You are an expert in academic publishing. Given the following research paper and author metadata, provide a confidence score (0-100) indicating the likelihood that the paper is legitimate (higher score = more legitimate). Consider paper factors (journal DOAJ indexing, citation counts, author count, publication year, abstract quality) and author factors (publication count, h-index, total citations, 2-year mean citedness, ORCID presence, research concepts, publication trends, but NOT affiliations) to assess if it comes from a predatory source (e.g., low peer review, questionable journal, authors with excessive low-quality publications). Metadata: Title: {metadata['title']}, Journal ISSN: {metadata['journal_issn'] or 'Unknown'}, Publication Year: {metadata['publication_year']}, Cited By Count: {metadata['cited_by_count']}, Author Count: {metadata['author_count']}, In DOAJ: {metadata['is_in_doaj']}, Abstract: {metadata['abstract']}, Average Author Publication Count: {metadata['avg_author_publications']}, Average Author H-Index: {metadata['avg_author_h_index']}, Average Author Total Citations: {metadata['avg_author_cited_by_count']}, Average Author 2-Year Mean Citedness: {metadata['avg_author_2yr_citedness']}, ORCID Presence: {metadata['orcid_presence']}, Top Author Concepts: {metadata['top_concepts']}, Author Publication Trend (Last 5 Years): {metadata['publication_trend']}. **Respond with only a single integer between 0 and 100, with no additional text or explanation.**"
     try:
         response = anthropic.messages.create(
             model=ANTHROPIC_MODEL,
@@ -158,6 +172,11 @@ def get_paper_confidence(metadata):
                 {"role": "user", "content": prompt}
             ]
         )
-        return int(response.content[0].text.strip())
+        # Extract the first integer from the response
+        text = response.content[0].text.strip()
+        match = re.search(r'\d+', text)
+        if match:
+            return int(match.group())
+        raise ValueError("No integer found in Claude response")
     except Exception as e:
         raise Exception(f"Anthropic API error: {e}")

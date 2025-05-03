@@ -14,7 +14,7 @@ def main():
                 # Fetch journal metadata
                 metadata = get_journal_metadata(issn_input)
                 
-                if metadata:
+                if metadata and isinstance(metadata, dict):
                     # Get confidence score from Claude
                     try:
                         confidence = get_journal_confidence(metadata)
@@ -27,11 +27,14 @@ def main():
                         st.error(f"Failed to get confidence score: {e}")
                         st.warning("Unable to assess journal legitimacy due to API error.")
                     
-                    # Display metadata explicitly as strings
+                    # Display metadata explicitly as strings with type checking
                     st.subheader("Journal Metadata")
-                    st.write(f"**Total Works**: {str(metadata.get('total_works', 'N/A'))}")
-                    st.write(f"**Average Citations**: {str(round(metadata.get('avg_citations', 0), 2))}")
-                    st.write(f"**In DOAJ**: {'Yes' if metadata.get('is_in_doaj', False) else 'No'}")
+                    total_works = metadata.get('total_works', 'N/A')
+                    avg_citations = metadata.get('avg_citations', 0)
+                    is_in_doaj = metadata.get('is_in_doaj', False)
+                    st.write(f"**Total Works**: {str(total_works)}")
+                    st.write(f"**Average Citations**: {str(round(float(avg_citations), 2)) if isinstance(avg_citations, (int, float)) else 'N/A'}")
+                    st.write(f"**In DOAJ**: {'Yes' if is_in_doaj else 'No'}")
                 
                 else:
                     st.error("Journal not found in OpenAlex or metadata unavailable.")
@@ -47,10 +50,10 @@ def main():
         paper_input = st.text_input(f"Enter paper {input_type} (e.g., DOI: 10.17487/IJST.2023.123456, Title: Blockchain Applications in IoT)", "")
         if st.button("Check Paper"):
             if paper_input:
-                # Fetch paper metadata
+                # Fetch paper metadata, including author metadata
                 metadata = get_paper_metadata(paper_input, input_type.lower())
                 
-                if metadata:
+                if metadata and isinstance(metadata, dict):
                     # Get confidence score from Claude, including author metadata
                     try:
                         confidence = get_paper_confidence(metadata)
@@ -63,21 +66,37 @@ def main():
                         st.error(f"Failed to get confidence score: {e}")
                         st.warning("Unable to assess paper legitimacy due to API error.")
                     
-                    # Display paper metadata explicitly as strings
+                    # Display paper metadata explicitly as strings with type checking
                     st.subheader("Paper Metadata")
-                    st.write(f"**Title**: {str(metadata.get('title', 'Unknown'))}")
-                    st.write(f"**Journal ISSN**: {str(metadata.get('journal_issn', 'Unknown'))}")
-                    st.write(f"**Publication Year**: {str(metadata.get('publication_year', 'N/A'))}")
-                    st.write(f"**Cited By Count**: {str(metadata.get('cited_by_count', 0))}")
-                    st.write(f"**Author Count**: {str(metadata.get('author_count', 0))}")
-                    st.write(f"**In DOAJ**: {'Yes' if metadata.get('is_in_doaj', False) else 'No'}")
+                    title = metadata.get('title', 'Unknown')
+                    journal_issn = metadata.get('journal_issn', 'Unknown')
+                    publication_year = metadata.get('publication_year', 'N/A')
+                    cited_by_count = metadata.get('cited_by_count', 0)
+                    author_count = metadata.get('author_count', 0)
+                    is_in_doaj = metadata.get('is_in_doaj', False)
+                    st.write(f"**Title**: {str(title)}")
+                    st.write(f"**Journal ISSN**: {str(journal_issn)}")
+                    st.write(f"**Publication Year**: {str(publication_year)}")
+                    st.write(f"**Cited By Count**: {str(cited_by_count)}")
+                    st.write(f"**Author Count**: {str(author_count)}")
+                    st.write(f"**In DOAJ**: {'Yes' if is_in_doaj else 'No'}")
                     
-                    # Display author metadata explicitly as strings
+                    # Display author metadata explicitly as strings with type checking
                     st.subheader("Author Metadata (Aggregated)")
-                    st.write(f"**Average Publication Count**: {str(metadata.get('avg_author_publications', 'N/A'))}")
-                    st.write(f"**Average H-Index**: {str(metadata.get('avg_author_h_index', 'N/A'))}")
-                    st.write(f"**Affiliations**: {str(metadata.get('author_affiliations', 'Unknown'))}")
-                    st.write(f"**Average Citations**: {str(round(metadata.get('avg_author_citations', 0), 2))}")
+                    avg_author_publications = metadata.get('avg_author_publications', 'N/A')
+                    avg_author_h_index = metadata.get('avg_author_h_index', 'N/A')
+                    avg_author_cited_by_count = metadata.get('avg_author_cited_by_count', 'N/A')
+                    avg_author_2yr_citedness = metadata.get('avg_author_2yr_citedness', 0)
+                    orcid_presence = metadata.get('orcid_presence', 'No')
+                    top_concepts = metadata.get('top_concepts', 'Unknown')
+                    publication_trend = metadata.get('publication_trend', 'N/A')
+                    st.write(f"**Average Publication Count**: {str(avg_author_publications)}")
+                    st.write(f"**Average H-Index**: {str(avg_author_h_index)}")
+                    st.write(f"**Average Cited By Count**: {str(avg_author_cited_by_count)}")
+                    st.write(f"**Average 2-Year Mean Citedness**: {str(round(float(avg_author_2yr_citedness), 2)) if isinstance(avg_author_2yr_citedness, (int, float)) else 'N/A'}")
+                    st.write(f"**ORCID Presence**: {str(orcid_presence)}")
+                    st.write(f"**Top Concepts**: {str(top_concepts)}")
+                    st.write(f"**Publication Trend (Last 5 Years)**: {str(publication_trend)}")
                     
                     # Generate report for media
                     st.subheader("Investigation Summary")
