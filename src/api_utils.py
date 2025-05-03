@@ -64,6 +64,7 @@ def get_author_metadata_for_paper(paper_data):
         authors = paper_data.get('authorships', [])
         if not authors:
             return None
+
         publication_counts = []
         cited_by_counts = []
         two_year_citedness = []
@@ -72,46 +73,40 @@ def get_author_metadata_for_paper(paper_data):
         publication_trends = []
         external_recognitions = []
         current_year = 2025
+
         for author in authors:
-            author_id = author.get('author', {}).get('id', '').split('/')[-1]
-            if author_id:
-                url = f"https://api.openalex.org/authors/{author_id}"
-                response = requests.get(url)
-                if response.status_code == 200:
-                    author_data = response.json()
-                    works_count = author_data.get('works_count', 0)
-                    publication_year = author_data.get('last_known_institution', {}).get('publication_year', current_year) or current_year
-                    career_length = max(1, current_year - publication_year)
-                    normalized_works = works_count / career_length if works_count >= 5 else works_count
-                    publication_counts.append(normalized_works)
-                    cited_by_count = author_data.get('cited_by_count', 0)
-                    normalized_citations = cited_by_count / career_length if career_length > 0 else cited_by_count
-                    cited_by_counts.append(normalized_citations)
-                    two_year_citedness.append(author_data.get('summary_stats', {}).get('2yr_mean_citedness', 0))
-                    orcids.append(1 if author_data.get('orcid') else 0)
-                    paper_title = paper_data.get('title', '').lower()
-                    author_concepts = [f"{concept.get('display_name', 'Unknown')} (score: {concept.get('score', 0)})" for concept in author_data.get('x_concepts', []) if concept.get('score', 0) > 50 and concept.get('display_name', '').lower() in paper_title]
-                    concepts.append("; ".join(author_concepts) if author_concepts else "Unknown")
-                    yearly_counts = [count for count in author_data.get('counts_by_year', []) if count.get('works_count', 0) > 0]
-                    trend = ", ".join([f"{count.get('year', 'N/A')}: {count.get('works_count', 0)} works" for count in yearly_counts[-5:]])
-                    publication_trends.append(trend if trend else "N/A")
-                    works_url = author_data.get('works_api_url', '')
-                    works_response = requests.get(f"{works_url}&per-page=10")
-                    if works_response.status_code == 200:
-                        works = works_response.json().get('results', [])
-                        high_quality_citations = sum(1 for work in works if work.get('host_venue', {}).get('publisher', '') in ['American Society for Microbiology', 'Nature', 'Elsevier', 'Springer', 'Wiley', 'Cell Press'] and work.get('publication_year', 0) >= 2023)
-                        external_recognitions.append(f"{high_quality_citations} recent citations/co-authorships in reputable venues")
-        if publication_counts:
-            return {
-                'avg_author_publications': np.mean(publication_counts),
-                'avg_author_cited_by_count': np.mean(cited_by_counts),
-                'avg_author_2yr_citedness': np.mean(two_year_citedness),
-                'orcid_presence': 'Yes' if np.mean(orcids) > 0 else 'No',
-                'top_concepts': "; ".join(set(concepts)),
-                'publication_trend': "; ".join(set(publication_trends)),
-                'external_recognition': "; ".join(set(external_recognitions)) if external_recognitions else "None"
-            }
-        return None
+            author_data = author.get('author', {})
+            author_id = author_data.get('id', '').split('/')[-1]
+            author_name = author_data.get('display_name', 'Unknown')
+            orcid = author_data.get('orcid', None)
+
+            # ORCID presence
+            orcids.append(1 if orcid else 0)
+
+            # Extract concepts related to the author
+            paper_title = paper_data.get('title', '').lower()
+            author_concepts = [
+                f"{concept.get('display_name', 'Unknown')} (score: {concept.get('score', 0)})"
+                for concept in paper_data.get('concepts', [])
+                if concept.get('score', 0) > 0.5 and concept.get('display_name', '').lower() in paper_title
+            ]
+            concepts.append("; ".join(author_concepts) if author_concepts else "Unknown")
+
+            # Extract publication trends (if available)
+            institutions = author.get('institutions', [])
+            institution_names = [inst.get('display_name', 'Unknown') for inst in institutions]
+            publication_trends.append(", ".join(institution_names) if institution_names else "N/A")
+
+        # Aggregate metadata
+        return {
+            'avg_author_publications': np.mean(publication_counts) if publication_counts else 0,
+            'avg_author_cited_by_count': np.mean(cited_by_counts) if cited_by_counts else 0,
+            'avg_author_2yr_citedness': np.mean(two_year_citedness) if two_year_citedness else 0,
+            'orcid_presence': 'Yes' if np.mean(orcids) > 0 else 'No',
+            'top_concepts': "; ".join(set(concepts)),
+            'publication_trend': "; ".join(set(publication_trends)),
+            'external_recognition': "; ".join(set(external_recognitions)) if external_recognitions else "None"
+        }
     except Exception as e:
         st.error(f"Failed to fetch author metadata: {e}")
         return None
@@ -127,22 +122,30 @@ def get_paper_metadata(paper_input, input_type):
             data = response.json()
             if data['meta']['count'] > 0:
                 paper = data['results'][0]
-                journal_issn = paper.get('host_venue', {}).get('issn_l', '') or paper.get('host_venue', {}).get('issn', [''])[0]
+                # Extract journal ISSN
+                journal_issn = paper.get('primary_location', {}).get('source', {}).get('issn_l', '') or \
+                               (paper.get('primary_location', {}).get('source', {}).get('issn', [])[0] if paper.get('primary_location', {}).get('source', {}).get('issn') else '')
+
+                # Extract publication year and citation data
                 publication_year = paper.get('publication_year', 0)
                 cited_by_count = paper.get('cited_by_count', 0)
                 years_since_publication = max(1, 2025 - publication_year)
                 normalized_citations = cited_by_count / years_since_publication if publication_year >= 2023 else cited_by_count
                 normalized_citations = max(normalized_citations, 3.0) if publication_year >= 2024 else normalized_citations
+
+                # Build paper metadata dictionary
                 paper_metadata = {
                     'title': paper.get('title', 'Unknown'),
                     'journal_issn': journal_issn,
                     'publication_year': publication_year,
                     'cited_by_count': normalized_citations,
                     'author_count': len(paper.get('authorships', [])),
-                    'is_in_doaj': is_in_doaj(journal_issn),
-                    'abstract': paper.get('abstract', 'No abstract available')[:500],
-                    'publisher': paper.get('host_venue', {}).get('publisher', 'Unknown')
+                    'is_in_doaj': paper.get('primary_location', {}).get('source', {}).get('is_in_doaj', False),
+                    'abstract': paper.get('abstract_inverted_index', 'No abstract available'),
+                    'publisher': paper.get('primary_location', {}).get('source', {}).get('host_organization_name', 'Unknown')
                 }
+
+                # Add author metadata
                 author_metadata = get_author_metadata_for_paper(paper)
                 if author_metadata:
                     paper_metadata.update(author_metadata)
@@ -156,6 +159,7 @@ def get_paper_metadata(paper_input, input_type):
                         'publication_trend': 'N/A',
                         'external_recognition': 'None'
                     })
+
                 return paper_metadata
         return None
     except Exception as e:
