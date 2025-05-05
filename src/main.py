@@ -62,7 +62,7 @@ def main():
                             st.error(f"This journal is definitely predatory as it is marked as hijacked journal.")
                             return
                         if not metadata or not isinstance(metadata, dict):
-                            st.error("Journal not found in the data source or metadata unavailable. Please verify the ISSN.")
+                            st.error("The journal could not be found. Please verify the ISSN or consider that the journal might not be legitimate.")
                             return
                         
                         try:
