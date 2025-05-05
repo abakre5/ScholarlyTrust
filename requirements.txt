@@ -2,4 +2,4 @@ pandas==2.2.2
 requests==2.32.3
 streamlit==1.39.0
 numpy==2.1.1
-anthropic==0.34.2
+anthropic==0.50.0
