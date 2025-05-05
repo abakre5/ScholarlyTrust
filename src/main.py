@@ -5,30 +5,6 @@ import re
 
 from api_utils import HIJACKED_ISSN, is_in_doaj, get_journal_metadata, get_paper_metadata, get_journal_confidence, get_paper_confidence
 
-def increment_view_counter():
-    """Increment the website view counter stored in a file."""
-    counter_dir = "../docs"
-    counter_file = os.path.join(counter_dir, "views.txt")
-    
-    # Ensure the docs folder exists
-    if not os.path.exists(counter_dir):
-        os.makedirs(counter_dir)
-    
-    # Ensure the views.txt file exists
-    if not os.path.exists(counter_file):
-        with open(counter_file, "w") as f:
-            f.write("0")
-    
-    # Increment the view counter
-    with open(counter_file, "r+") as f:
-        count = int(f.read().strip())
-        count += 1
-        f.seek(0)
-        f.write(str(count))
-        f.truncate()
-    
-    return count
-
 def validate_issn(issn):
     """Validate ISSN format (e.g., 1234-5678)."""
     pattern = r'^\d{4}-\d{4}$'
@@ -160,9 +136,6 @@ def main():
     except Exception:
         st.error("An unexpected error occurred in the application. Please refresh the page and try again.")
         return
-    
-    view_count = increment_view_counter()
-    st.markdown(f"<div style='text-align: center; margin-top: 12px; font-size: 12px; color: #555;'>Website Views: {view_count}</div>", unsafe_allow_html=True)
     
     # Powered by Anthropic Footer
     st.markdown(

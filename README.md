@@ -10,7 +10,6 @@
 - **Research Paper Validation**: Evaluate research papers using their DOI or title.
 - **Metadata Insights**: View detailed metadata for journals and papers, including publisher, citation counts, DOAJ status, and more.
 - **Confidence Scoring**: Get a confidence score (0-100%) indicating the likelihood of legitimacy.
-- **Website View Counter**: Tracks the number of visits to the platform.
 - **User-Friendly Interface**: Built with Streamlit for an intuitive and interactive experience.
 
 ---
@@ -56,8 +55,6 @@
 
 ```
 ScholarlyTrust/
-├── docs/                     # Documentation and view counter storage
-│   └── views.txt             # Stores website view count
 ├── src/                      # Source code
 │   ├── main.py               # Main Streamlit app
 │   ├── api_utils.py          # Utility functions for API calls
