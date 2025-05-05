@@ -3,7 +3,7 @@ import streamlit as st
 import requests
 import re
 
-from api_utils import is_in_doaj, get_journal_metadata, get_paper_metadata, get_journal_confidence, get_paper_confidence
+from api_utils import HIJACKED_ISSN, is_in_doaj, get_journal_metadata, get_paper_metadata, get_journal_confidence, get_paper_confidence
 
 def increment_view_counter():
     """Increment the website view counter stored in a file."""
@@ -58,6 +58,9 @@ def main():
                 with st.spinner("Analyzing your request..."):
                     try:
                         metadata = get_journal_metadata(issn_input)
+                        if metadata is HIJACKED_ISSN:
+                            st.error(f"This journal is definitely predatory as it is marked as hijacked journal.")
+                            return
                         if not metadata or not isinstance(metadata, dict):
                             st.error("Journal not found in the data source or metadata unavailable. Please verify the ISSN.")
                             return

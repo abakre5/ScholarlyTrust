@@ -6,6 +6,9 @@ import os
 import re
 from config import ANTHROPIC_MODEL
 
+# Define constants
+HIJACKED_ISSN = "HIJACKED_ISSN"
+
 # Initialize Anthropic client
 try:
     anthropic = Anthropic(api_key=st.secrets["ANTHROPIC_API_KEY"])
@@ -33,6 +36,16 @@ def is_in_doaj(journal_issn):
         return False
 
 def get_journal_metadata(issn):
+    # Check if the ISSN is in the hijacked list
+    hijacked_issns_file = "/workspaces/ScholarlyTrust/docs/hijacked_issn.txt"
+    try:
+        with open(hijacked_issns_file, 'r') as file:
+            hijacked_issns = {line.strip() for line in file if line.strip()}
+        if issn in hijacked_issns:
+            return HIJACKED_ISSN
+    except Exception as e:
+        print(f"Error reading hijacked ISSNs file: {e}")
+    
     url = f"https://api.openalex.org/sources?filter=issn:{issn}"
     try:
         response = requests.get(url)
@@ -222,9 +235,9 @@ def get_journal_confidence(metadata):
 def get_paper_confidence(metadata):
     new_researcher = metadata.get('avg_author_publications', 0) < 5
     if new_researcher:
-        prompt = f"You are an expert in academic publishing. Provide a confidence score (0-100) indicating the likelihood that the paper is legitimate (higher score = more legitimate). For new researchers (low publication count), assign weights: ORCID presence (35%), publisher reputation (30%, high for American Society for Microbiology, Nature, Elsevier, Springer, Wiley), external recognition (25%, citations/co-authorship in reputable venues as proxy for media coverage), publication trends (5%), concept alignment (5%). Recognize predatory papers (e.g., ISSN 2313-1799) by non-DOAJ journals, no ORCID, or misaligned concepts, but avoid flagging new researchers unless clear evidence exists. A paper is legitimate if published by reputable publishers (e.g., ASM for ISSN 1092-2172) or authors have ORCID. Ensure top concepts align with paper title: {metadata['title']}. Metadata: Title: {metadata['title']}, Journal ISSN: {metadata['journal_issn'] or 'Unknown'}, Publication Year: {metadata['publication_year']}, Cited By Count (per year): {metadata['cited_by_count']}, Author Count: {metadata['author_count']}, In DOAJ: {metadata['is_in_doaj']}, Average Author Publication Count (normalized): {metadata['avg_author_publications']}, Average Author Total Citations (normalized): {metadata['avg_author_cited_by_count']}, Average Author 2-Year Mean Citedness: {metadata['avg_author_2yr_citedness']}, ORCID Presence: {metadata['orcid_presence']}, Top Author Concepts: {metadata['top_concepts']}, Author Publication Trend (Last 5 Years): {metadata['publication_trend']}, Publisher: {metadata['publisher']}, New Researcher: {'Yes' if new_researcher else 'No'}. **Respond with only a single integer between 0 and 100, with no additional text or explanation.**"
+        prompt = f"You are an expert in academic publishing. Provide a confidence score (0-100) indicating the likelihood that the paper is legitimate (higher score = more legitimate). For new researchers (low publication count), assign weights: DOAJ indexing (40%, journals listed in DOAJ are highly credible), ORCID presence (25%), publisher reputation (15%, high for American Society for Microbiology, Nature, Elsevier, Springer, Wiley), external recognition (5%, citations/co-authorship in reputable venues as proxy for media coverage), publication trends (3%), concept alignment (2%). Recognize predatory papers (e.g., ISSN 2313-1799) by non-DOAJ journals, no ORCID, or misaligned concepts, but avoid flagging new researchers unless clear evidence exists. A paper is legitimate if published by reputable publishers (e.g., ASM for ISSN 1092-2172), authors have ORCID, or the journal is in DOAJ. Ensure top concepts align with paper title: {metadata['title']}. Metadata: Title: {metadata['title']}, Journal ISSN: {metadata['journal_issn'] or 'Unknown'}, Publication Year: {metadata['publication_year']}, Cited By Count (per year): {metadata['cited_by_count']}, Author Count: {metadata['author_count']}, In DOAJ: {metadata['is_in_doaj']}, Average Author Publication Count (normalized): {metadata['avg_author_publications']}, Average Author Total Citations (normalized): {metadata['avg_author_cited_by_count']}, Average Author 2-Year Mean Citedness: {metadata['avg_author_2yr_citedness']}, ORCID Presence: {metadata['orcid_presence']}, Top Author Concepts: {metadata['top_concepts']}, Author Publication Trend (Last 5 Years): {metadata['publication_trend']}, Publisher: {metadata['publisher']}, New Researcher: {'Yes' if new_researcher else 'No'}. **Respond with only a single integer between 0 and 100, with no additional text or explanation.**"
     else:
-        prompt = f"You are an expert in academic publishing. Provide a confidence score (0-100) indicating the likelihood that the paper is legitimate (higher score = more legitimate). Assign weights: ORCID presence (25%), external recognition (25%, citations/co-authorship in reputable venues as proxy for media coverage), publication trends (10%), concept alignment (5%), publisher reputation (25%, high for American Society for Microbiology, Nature, Elsevier, Springer, Wiley), DOAJ indexing (10%). Recognize predatory papers (e.g., ISSN 2313-1799) by non-DOAJ journals, no ORCID, or misaligned concepts. A paper is legitimate if authors have ORCID, external recognition, or published by reputable publishers (e.g., ASM for ISSN 1092-2172). Ensure top concepts align with paper title: {metadata['title']}. Metadata: Title: {metadata['title']}, Journal ISSN: {metadata['journal_issn'] or 'Unknown'}, Publication Year: {metadata['publication_year']}, Cited By Count (per year): {metadata['cited_by_count']}, Author Count: {metadata['author_count']}, In DOAJ: {metadata['is_in_doaj']}, Average Author Publication Count (normalized): {metadata['avg_author_publications']}, Average Author Total Citations (normalized): {metadata['avg_author_cited_by_count']}, Average Author 2-Year Mean Citedness: {metadata['avg_author_2yr_citedness']}, ORCID Presence: {metadata['orcid_presence']}, Top Author Concepts: {metadata['top_concepts']}, Author Publication Trend (Last 5 Years): {metadata['publication_trend']}, Publisher: {metadata['publisher']}, New Researcher: {'Yes' if new_researcher else 'No'}. **Respond with only a single integer between 0 and 100, with no additional text or explanation.**"
+        prompt = f"You are an expert in academic publishing. Provide a confidence score (0-100) indicating the likelihood that the paper is legitimate (higher score = more legitimate). Assign weights: DOAJ indexing (40%, journals listed in DOAJ are highly credible), ORCID presence (20%), external recognition (15%, citations/co-authorship in reputable venues as proxy for media coverage), publication trends (5%), concept alignment (5%), publisher reputation (5%, high for American Society for Microbiology, Nature, Elsevier, Springer, Wiley). Recognize predatory papers (e.g., ISSN 2313-1799) by non-DOAJ journals, no ORCID, or misaligned concepts. A paper is legitimate if authors have ORCID, the journal is in DOAJ, or it is published by reputable publishers (e.g., ASM for ISSN 1092-2172). Ensure top concepts align with paper title: {metadata['title']}. Metadata: Title: {metadata['title']}, Journal ISSN: {metadata['journal_issn'] or 'Unknown'}, Publication Year: {metadata['publication_year']}, Cited By Count (per year): {metadata['cited_by_count']}, Author Count: {metadata['author_count']}, In DOAJ: {metadata['is_in_doaj']}, Average Author Publication Count (normalized): {metadata['avg_author_publications']}, Average Author Total Citations (normalized): {metadata['avg_author_cited_by_count']}, Average Author 2-Year Mean Citedness: {metadata['avg_author_2yr_citedness']}, ORCID Presence: {metadata['orcid_presence']}, Top Author Concepts: {metadata['top_concepts']}, Author Publication Trend (Last 5 Years): {metadata['publication_trend']}, Publisher: {metadata['publisher']}, New Researcher: {'Yes' if new_researcher else 'No'}. **Respond with only a single integer between 0 and 100, with no additional text or explanation.**"
     try:
         response = anthropic.messages.create(
             model=ANTHROPIC_MODEL,
@@ -242,3 +255,4 @@ def get_paper_confidence(metadata):
         raise ValueError("No integer found in Claude response")
     except Exception as e:
         raise Exception(f"Anthropic API error: {e}")
+    
