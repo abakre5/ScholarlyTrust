@@ -1,4 +1,5 @@
 .streamlit/secrets.toml
+docs/views.txt
 __pycache__/
 *.pyc
 .env
