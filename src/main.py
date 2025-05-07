@@ -19,26 +19,32 @@ def main():
     st.write("Check the legitimacy of a journal (by ISSN) or a research paper (by DOI or title).")
     
     try:
-        check_type = st.radio("Select check type:", ("Research Paper", "Journal"))
+        check_type = st.radio("Select check type:", ("Journal", "Research Paper"))
         
         if check_type == "Journal":
-            issn_input = st.text_input("Enter journal ISSN (e.g., 1092-2172 for MMBR, 2313-1799 for predatory)", "")
+            input_type = st.radio("Select journal input type:", ("Name", "ISSN"))
+            journal_input = st.text_input(f"Enter journal {input_type} (e.g., ISSN: 1092-2172, Name: Journal of Molecular Biology)", "")
             if st.button("Check Journal"):
-                if not issn_input:
-                    st.error("Please enter a valid ISSN.")
+                if not journal_input:
+                    st.error(f"Please enter a valid journal {input_type}.")
                     return
-                if not validate_issn(issn_input):
+                
+                if input_type == "ISSN" and not validate_issn(journal_input):
                     st.error("Invalid ISSN format. Please use a format like 1234-5678.")
                     return
                 
                 with st.spinner("Analyzing your request..."):
                     try:
-                        metadata = get_journal_metadata(issn_input)
+                        if input_type == "ISSN":
+                            metadata = get_journal_metadata(journal_input, True)
+                        else:  # Input type is "Name"
+                            metadata = get_journal_metadata(journal_input, False)  # You need to implement this function
+                        
                         if metadata is HIJACKED_ISSN:
-                            st.error(f"This journal is definitely predatory as it is marked as hijacked journal.")
+                            st.error(f"This journal is definitely predatory as it is marked as a hijacked journal.")
                             return
                         if not metadata or not isinstance(metadata, dict):
-                            st.error("The journal could not be found. Please verify the ISSN or consider that the journal might not be legitimate.")
+                            st.error("The journal could not be found. Please verify the input or consider that the journal might not be legitimate.")
                             return
                         
                         try:
@@ -78,6 +84,7 @@ def main():
                 
                 st.subheader("Investigation Summary")
                 st.write(reason)
+      
         
         else:
             input_type = st.radio("Select paper input type(DOI is preferred input type):", ("DOI", "Title"))

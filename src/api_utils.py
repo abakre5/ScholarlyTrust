@@ -35,18 +35,21 @@ def is_in_doaj(journal_issn):
         st.error(f"Failed to query OpenAlex API for journal: {e}")
         return False
 
-def get_journal_metadata(issn):
+def get_journal_metadata(id, is_issn=True):
     # Check if the ISSN is in the hijacked list
     hijacked_issns_file = "/workspaces/ScholarlyTrust/docs/hijacked_issn.txt"
     try:
         with open(hijacked_issns_file, 'r') as file:
             hijacked_issns = {line.strip() for line in file if line.strip()}
-        if issn in hijacked_issns:
+        if id in hijacked_issns:
             return HIJACKED_ISSN
     except Exception as e:
         print(f"Error reading hijacked ISSNs file: {e}")
     
-    url = f"https://api.openalex.org/sources?filter=issn:{issn}"
+    if is_issn:
+        url = f"https://api.openalex.org/sources?filter=issn:{id}"
+    else:
+        url = f'https://api.openalex.org/sources?search="{id}"'
     try:
         response = requests.get(url)
         if response.status_code == 200:
@@ -55,6 +58,8 @@ def get_journal_metadata(issn):
                 source = data['results'][0]
                 # Extract fields
                 title = source.get('display_name', 'Unknown')
+                if not is_issn and not title.upper() == id.upper():
+                    return None
                 publisher = source.get('host_organization_name', 'Unknown')
                 homepage_url = source.get('homepage_url', 'N/A')
                 is_in_doaj = source.get('is_in_doaj', False)
