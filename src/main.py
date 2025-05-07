@@ -18,6 +18,9 @@ def main():
     st.title("ScholarlyTrust: Research Integrity Checker")
     st.write("Check the legitimacy of a journal (by ISSN) or a research paper (by DOI or title).")
     
+    # Add disclaimer
+    st.warning("**Disclaimer:** Results are based on available data and algorithms and may not be 100% accurate.")    
+    
     try:
         check_type = st.radio("Select check type:", ("Journal", "Research Paper"))
         
