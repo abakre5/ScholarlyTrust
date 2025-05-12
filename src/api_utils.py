@@ -38,11 +38,18 @@ def is_in_doaj(journal_issn):
 def get_journal_metadata(id, is_issn=True):
     # Check if the ISSN is in the hijacked list
     hijacked_issns_file = "/workspaces/ScholarlyTrust/docs/hijacked_issn.txt"
+    hijacked_journal_names_file = "/workspaces/ScholarlyTrust/docs/hijacked_journal_title.txt"
     try:
-        with open(hijacked_issns_file, 'r') as file:
-            hijacked_issns = {line.strip() for line in file if line.strip()}
-        if id in hijacked_issns:
-            return HIJACKED_ISSN
+        if is_issn:
+            with open(hijacked_issns_file, 'r') as file:
+                hijacked_issns = {line.strip() for line in file if line.strip()}
+            if id in hijacked_issns:
+                return HIJACKED_ISSN
+        else:
+            with open(hijacked_journal_names_file, 'r') as file:
+                hijacked_journals = {line.strip().lower() for line in file if line.strip()}
+            if id.lower() in hijacked_journals:
+                return HIJACKED_ISSN
     except Exception as e:
         print(f"Error reading hijacked ISSNs file: {e}")
     

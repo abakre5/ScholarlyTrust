@@ -47,7 +47,7 @@ def main():
                             st.error(f"This journal is definitely predatory as it is marked as a hijacked journal.")
                             return
                         if not metadata or not isinstance(metadata, dict):
-                            st.error("The journal could not be found. Please verify the input or consider that the journal might not be legitimate.")
+                            st.error("The journal could not be found in our trusted sources. Please double-check the input or be cautious, as the journal might be illegitimate or predatory.")
                             return
                         
                         try:
@@ -104,7 +104,7 @@ def main():
                     try:
                         metadata = get_paper_metadata(paper_input, input_type.lower())
                         if not metadata or not isinstance(metadata, dict):
-                            st.error(f"Paper not found in the data source or metadata unavailable. Please verify the {input_type}.")
+                            st.error(f"The paper could not be found in our trusted sources or its metadata is unavailable. Please verify the {input_type} or consider that the paper might not be legitimate.")
                             return
                         
                         try:
