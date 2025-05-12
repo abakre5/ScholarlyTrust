@@ -38,6 +38,7 @@ def main():
                 
                 with st.spinner("Analyzing your request..."):
                     try:
+                        journal_input = journal_input.strip()
                         if input_type == "ISSN":
                             metadata = get_journal_metadata(journal_input, True)
                         else:  # Input type is "Name"
@@ -102,6 +103,7 @@ def main():
                 
                 with st.spinner("Analyzing your request..."):
                     try:
+                        paper_input = paper_input.strip()
                         metadata = get_paper_metadata(paper_input, input_type.lower())
                         if not metadata or not isinstance(metadata, dict):
                             st.error(f"The paper could not be found in our trusted sources or its metadata is unavailable. Please verify the {input_type} or consider that the paper might not be legitimate.")
