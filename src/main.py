@@ -25,7 +25,7 @@ def main():
         check_type = st.radio("Select check type:", ("Journal", "Research Paper"))
         
         if check_type == "Journal":
-            input_type = st.radio("Select journal input type:", ("Name", "ISSN"))
+            input_type = st.radio("Select journal input type(ISSN is preferred input type):", ("Name", "ISSN"))
             journal_input = st.text_input(f"Enter journal {input_type} (e.g., ISSN: 1092-2172, Name: Journal of Molecular Biology)", "")
             if st.button("Check Journal"):
                 if not journal_input:
@@ -48,7 +48,11 @@ def main():
                             st.error(f"This journal is definitely predatory as it is marked as a hijacked journal.")
                             return
                         if not metadata or not isinstance(metadata, dict):
-                            st.error("The journal could not be found in our trusted sources. Please double-check the input or be cautious, as the journal might be illegitimate or predatory.")
+                            st.error(
+                                "The journal could not be found in our trusted sources. "
+                                "If you are certain the input is correct, this is almost certainly not a legitimate or reputable journal. "
+                                "Otherwise, please double-check your input for typos."
+                            )                       
                             return
                         
                         try:
@@ -106,7 +110,11 @@ def main():
                         paper_input = paper_input.strip()
                         metadata = get_paper_metadata(paper_input, input_type.lower())
                         if not metadata or not isinstance(metadata, dict):
-                            st.error(f"The paper could not be found in our trusted sources or its metadata is unavailable. Please verify the {input_type} or consider that the paper might not be legitimate.")
+                            st.error(
+                                f"The paper could not be found in our trusted sources or its metadata is unavailable. "
+                                f"If you are certain the input is correct, this is almost certainly not a legitimate scholarly work. "
+                                f"Otherwise, please double-check your input for typos."
+                            )
                             return
                         
                         try:
@@ -184,9 +192,13 @@ def generate_journal_reason(confidence, metadata):
         f"It’s {'listed' if is_in_doaj else 'not listed'} on a trusted journal directory (DOAJ), "
         f"{'which adds to its credibility' if is_in_doaj else 'which raises some questions about its standards'}."
     )
-    publisher_message = (
-        f"It’s run by {publisher}, which is {'widely known and trusted' if confidence >= 70 else 'not widely known or trusted'}."
-    )
+    publisher_message = ""
+    if publisher is None:
+        publisher_message = "The journal's publisher is not well-documented leading to major doubts of it's legitimacy."
+    else:
+        publisher_message = (
+            f"It’s run by {publisher}, which is {'widely known and trusted' if confidence >= 70 else 'not widely known or trusted'}."
+        )
     works_message = (
         f"The journal has published {works_count} works in total."
         if works_count > 0
@@ -231,11 +243,14 @@ def generate_paper_reason(confidence, metadata):
         else "but citation data is unavailable or not reported"
     )
     author_message = (
-        f"The paper has {author_count} authors, {'most of whom have verified ORCID IDs' if orcid_presence == 'Yes' else 'but author verification is lacking'}."
+        f"The paper has {author_count} author(s), {'most of whom have verified ORCID IDs' if orcid_presence == 'Yes' else 'but author verification is lacking'}."
     )
-    publisher_message = (
-        f"It’s published by {publisher}, which is {'widely known and trusted' if confidence >= 70 else 'not widely known or trusted'}."
-    )
+    if publisher is None:
+        publisher_message = "The research paper's publisher is not well-documented leading to major doubts of it's legitimacy."
+    else:
+        publisher_message = (
+            f"It’s published by {publisher}, which is {'widely known and trusted' if confidence >= 70 else 'not widely known or trusted'}."
+        )
     doaj_message = (
         f"The journal is {'listed' if is_in_doaj else 'not listed'} on a trusted directory (DOAJ), "
         f"{'which adds to its credibility' if is_in_doaj else 'which raises some questions about its standards'}."
@@ -248,18 +263,18 @@ def generate_paper_reason(confidence, metadata):
     )
     concepts_message = (
         f"The paper focuses on concepts such as {top_concepts}."
-        if top_concepts != "Unknown"
+        if top_concepts != "Unknown" and top_concepts is not None and top_concepts != 'N/A'
         else "The paper's key concepts are not well-defined."
     )
     publication_trend_message = (
         f"The authors are affiliated with institutions such as {publication_trend.split(';')[0]}."
-        if publication_trend != "Unknown"
+        if publication_trend is not None and 'N/A' not in str(publication_trend).strip()
         else "The authors' institutional affiliations are not well-documented."
     )
     journal_message = (
         f"The paper was published in a journal with ISSN {journal_issn} in the year {publication_year}."
-        if journal_issn != "Unknown" and publication_year != "Unknown"
-        else "The journal's ISSN or publication year is not well-documented."
+        if journal_issn != "Unknown" and journal_issn != 'N/A' and publication_year != "Unknown" and publication_year != 'N/A'
+        else "The journal's ISSN or publication year is not well-documented which makes it suspicious."
     )
 
     # Generate confidence-based reasoning
