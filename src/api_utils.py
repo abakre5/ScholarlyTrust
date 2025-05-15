@@ -8,6 +8,7 @@ from config import ANTHROPIC_MODEL
 
 # Define constants
 HIJACKED_ISSN = "HIJACKED_ISSN"
+ERROR_STATE = "ERROR_STATE"
 
 # Initialize Anthropic client
 try:
@@ -17,7 +18,7 @@ except KeyError:
     if api_key:
         anthropic = Anthropic(api_key=api_key)
     else:
-        st.error("Anthropic API key not found. Please set it in secrets.toml or as an environment variable.")
+        print("Anthropic API key not found. Please set it in secrets.toml or as an environment variable.")
         st.stop()
 
 def is_in_doaj(journal_issn):
@@ -32,8 +33,8 @@ def is_in_doaj(journal_issn):
                 return data['results'][0].get('is_in_doaj', False)
         return False
     except Exception as e:
-        st.error(f"Failed to query OpenAlex API for journal: {e}")
-        return False
+        print(f"Failed to query OpenAlex API for journal: {e}")
+        return ERROR_STATE
 
 def get_journal_metadata(id, is_issn=True):
     # Check if the ISSN is in the hijacked list
@@ -52,6 +53,7 @@ def get_journal_metadata(id, is_issn=True):
                 return HIJACKED_ISSN
     except Exception as e:
         print(f"Error reading hijacked ISSNs file: {e}")
+        return ERROR_STATE
     
     if is_issn:
         url = f"https://api.openalex.org/sources?filter=issn:{id}"
@@ -92,8 +94,8 @@ def get_journal_metadata(id, is_issn=True):
                 }
         return None
     except Exception as e:
-        st.error(f"Failed to fetch journal metadata: {e}")
-        return None
+        print(f"Failed to fetch journal metadata: {e}")
+        return ERROR_STATE
 
 def get_author_metadata_for_paper(paper_data):
     try:
@@ -142,8 +144,8 @@ def get_author_metadata_for_paper(paper_data):
             'publication_trend': "; ".join(set(publication_trends))
         }
     except Exception as e:
-        st.error(f"Failed to fetch author metadata: {e}")
-        return None
+        print(f"Failed to fetch author metadata: {e}")
+        return ERROR_STATE
 
 def get_paper_metadata(paper_input, input_type):
     if input_type == 'doi':
@@ -180,6 +182,8 @@ def get_paper_metadata(paper_input, input_type):
 
                 # Add author metadata
                 author_metadata = get_author_metadata_for_paper(paper)
+                if author_metadata == ERROR_STATE:
+                    return ERROR_STATE
                 if author_metadata:
                     paper_metadata.update(author_metadata)
                 else:
@@ -193,10 +197,10 @@ def get_paper_metadata(paper_input, input_type):
                     })
 
                 return paper_metadata
-        return None
+        return ERROR_STATE
     except Exception as e:
-        st.error(f"Failed to fetch paper metadata: {e}")
-        return None
+        print(f"Failed to fetch paper metadata: {e}")
+        return ERROR_STATE
 
 def get_journal_confidence(metadata):
     prompt = f"""
@@ -243,6 +247,7 @@ def get_journal_confidence(metadata):
         raise ValueError("No integer found in Claude response")
     except Exception as e:
         raise Exception(f"Anthropic API error: {e}")
+        return ERROR_STATE
 
 def get_paper_confidence(metadata):
     new_researcher = metadata.get('avg_author_publications', 0) < 5
@@ -267,4 +272,5 @@ def get_paper_confidence(metadata):
         raise ValueError("No integer found in Claude response")
     except Exception as e:
         raise Exception(f"Anthropic API error: {e}")
+        return ERROR_STATE
     

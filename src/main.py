@@ -3,7 +3,7 @@ import streamlit as st
 import requests
 import re
 
-from api_utils import HIJACKED_ISSN, is_in_doaj, get_journal_metadata, get_paper_metadata, get_journal_confidence, get_paper_confidence
+from api_utils import ERROR_STATE, HIJACKED_ISSN, is_in_doaj, get_journal_metadata, get_paper_metadata, get_journal_confidence, get_paper_confidence
 
 def validate_issn(issn):
     """Validate ISSN format (e.g., 1234-5678)."""
@@ -44,6 +44,9 @@ def main():
                         else:  # Input type is "Name"
                             metadata = get_journal_metadata(journal_input, False)  # You need to implement this function
                         
+                        if metadata is ERROR_STATE:
+                            st.error("Something went wrong.")
+                            return
                         if metadata is HIJACKED_ISSN:
                             st.error(f"This journal is definitely predatory as it is marked as a hijacked journal.")
                             return
@@ -57,6 +60,9 @@ def main():
                         
                         try:
                             confidence = get_journal_confidence(metadata)
+                            if confidence is ERROR_STATE:
+                                st.error("Something went wrong.")
+                                return
                             if confidence >= 60:
                                 st.success(f"This journal is likely legitimate with {confidence}% confidence.")
                             elif confidence > 30:
@@ -109,6 +115,9 @@ def main():
                     try:
                         paper_input = paper_input.strip()
                         metadata = get_paper_metadata(paper_input, input_type.lower())
+                        if metadata is ERROR_STATE:
+                            st.error("Something went wrong.")
+                            return
                         if not metadata or not isinstance(metadata, dict):
                             st.error(
                                 f"The paper could not be found in our trusted sources or its metadata is unavailable. "
@@ -119,6 +128,9 @@ def main():
                         
                         try:
                             confidence = get_paper_confidence(metadata)
+                            if confidence is ERROR_STATE:
+                                st.error("Something went wrong.")
+                                return
                             if confidence >= 60:
                                 st.success(f"This paper is likely legitimate with {confidence}% confidence.")
                             elif confidence > 30:
