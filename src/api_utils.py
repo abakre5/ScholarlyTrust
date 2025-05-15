@@ -197,7 +197,7 @@ def get_paper_metadata(paper_input, input_type):
                     })
 
                 return paper_metadata
-        return ERROR_STATE
+        return None
     except Exception as e:
         print(f"Failed to fetch paper metadata: {e}")
         return ERROR_STATE
