@@ -38,6 +38,42 @@ def is_in_doaj(journal_issn):
         print(f"Failed to query OpenAlex API for journal: {e}")
         return ERROR_STATE
 
+def get_journal_authors(source_id, max_works=100):
+    """
+    Fetches authors from the most recent works in a journal using OpenAlex.
+    Returns a list of author dicts with name, orcid, and affiliation.
+    """
+    import requests
+
+    # Accept both full OpenAlex URLs and just the source ID
+    if source_id.startswith("https://openalex.org/"):
+        source_id = source_id.split("/")[-1]
+
+    url = f"https://api.openalex.org/works?filter=primary_location.source.id:{source_id}&per-page={max_works}"
+    try:
+        response = requests.get(url)
+        if response.status_code != 200:
+            print(f"Failed to fetch works for journal {source_id}: {response.status_code}")
+            return []
+        works = response.json().get('results', [])
+        authors = []
+        for work in works:
+            for author in work.get('authorships', []):
+                author_data = author.get('author', {})
+                name = author_data.get('display_name', NOT_FOUND)
+                orcid = author_data.get('orcid', NOT_FOUND)
+                institutions = author.get('institutions', [])
+                affiliation = institutions[0]['display_name'] if institutions and len(institutions[0]) else NOT_FOUND
+                authors.append({
+                    "name": name,
+                    "orcid": orcid,
+                    "affiliation": affiliation
+                })
+        return authors
+    except Exception as e:
+        print(f"Error fetching journal authors: {e}")
+        return []
+
 def get_journal_metadata(id, is_issn=True):
     # Check if the ISSN is in the hijacked list
     hijacked_issns_file = "/workspaces/ScholarlyTrust/docs/hijacked_issn.txt"
@@ -83,6 +119,10 @@ def get_journal_metadata(id, is_issn=True):
                     for topic in source.get('topics', [])
                 ]
                 # v2
+                source_id = source.get('id', NOT_FOUND)
+                authors_who_pulished_in_this_journal_info = NOT_FOUND
+                if source_id != NOT_FOUND:
+                    authors_who_pulished_in_this_journal_info = get_journal_authors(source_id)
                 is_indexed_in_scopus = source.get('is_indexed_in_scopus', False)
                 summary_stats = source.get('summary_stats', {})
                 h_index = summary_stats.get('h_index', NOT_FOUND)
@@ -92,14 +132,13 @@ def get_journal_metadata(id, is_issn=True):
                 apc_prices = source.get('apc_prices', NOT_FOUND)
 
 
-                
-
                 return {
                     "title": title,
                     "publisher": publisher,
                     "homepage_url": homepage_url,
                     "is_in_doaj": is_in_doaj,
                     "is_open_access": is_open_access,
+                    "authors_who_pulished_in_this_journal_info": authors_who_pulished_in_this_journal_info,
                     "country_code": country_code,
                     "works_count": works_count,
                     "cited_by_count": cited_by_count,
@@ -230,22 +269,24 @@ def get_paper_metadata_v2(paper_input, input_type):
         return ERROR_STATE
 
 def get_journal_confidence(metadata):
+    authors_info = metadata.get('authors_who_pulished_in_this_journal_info', [])
+    total_authors = len(authors_info)
+    orcid_count = sum(1 for a in authors_info if a.get('orcid') not in [None, NOT_FOUND, ""])
+    reputable_affiliations = [
+        "Harvard", "MIT", "Stanford", "Oxford", "Cambridge", "Yale", "Caltech", "Princeton", "Columbia", "Berkeley"
+    ]
+    reputable_affil_count = sum(
+        1 for a in authors_info if any(
+            uni.lower() in (a.get('affiliation') or '').lower() for uni in reputable_affiliations
+        )
+    )
+    orcid_ratio = f"{orcid_count}/{total_authors}" if total_authors else "0/0"
+    reputable_affil_ratio = f"{reputable_affil_count}/{total_authors}" if total_authors else "0/0"
+
     prompt = f"""
 You are an expert in academic publishing. Evaluate the legitimacy of the following journal and provide a confidence score (0-100), where a higher score indicates greater legitimacy.
 
-**Scoring rules (strict, do not break these):**
-- If "In DOAJ" is False, the score MUST NOT exceed 50, no matter what.
-- If BOTH "In DOAJ" and "Indexed in Scopus" are False, the score MUST NOT exceed 40, no matter what.
-- If "In DOAJ" is True, start with a base score of 70.
-- If "Indexed in Scopus" is True, add 20 points. If False, subtract 20 points.
-- If "Host Organization Name" is None, Unknown, or Not Found, subtract 10 points.
-- If "H-Index", "2-Year Mean Citedness", "I10 Index", "Cited By Count", or "Total Works" are very low (compared to typical reputable journals), subtract up to 10 points.
-- If "Is Open Access" is True, add 2 points.
-- If "Homepage URL" is missing or unprofessional, subtract 2 points.
-- If "APC Prices" are excessive or hidden, subtract 2 points.
-- The final score must be between 0 and 100.
-
-**DOAJ status is the most important factor. If the journal is not in DOAJ, it is highly suspicious and cannot be scored above 50. If not in DOAJ AND not in Scopus, it cannot be scored above 40.**
+Check if the publisher name '{metadata['publisher']}' is reputable. This carries biggest deciding factor.
 
 **Use the following metadata to make your decision:**
 - In DOAJ: {metadata['is_in_doaj']}
@@ -263,6 +304,8 @@ You are an expert in academic publishing. Evaluate the legitimacy of the followi
 - Publisher: {metadata['publisher']}
 - Country Code: {metadata['country_code']}
 - Fields of Research: {', '.join(metadata['fields_of_research'])}
+- Authors with ORCID: {orcid_ratio}
+- Authors with reputable affiliations: {reputable_affil_ratio}
 
 **Respond with only a single integer between 0 and 100, with no additional text or explanation.**
 """
