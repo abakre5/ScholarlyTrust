@@ -113,14 +113,10 @@ def main():
                             message_something_went_wrong()
                             return
                         research_paper_confidence_calculator(confidence)
-                        try:
-                            reason = generate_paper_reason(confidence, metadata)
-                            st.subheader("Investigation Summary")
-                            st.write(reason)
-                            view_paper_metadata(metadata, st)
-                        except Exception:
-                            print("Tried to reason but failed")
-                            return
+                        reason = generate_paper_reason(confidence, metadata)
+                        st.subheader("Investigation Summary")
+                        st.write(reason)
+                        view_paper_metadata(metadata, st)
         
                     except Exception:
                         message_something_went_wrong()

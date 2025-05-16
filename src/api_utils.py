@@ -84,6 +84,15 @@ def get_journal_metadata(id, is_issn=True):
                 ]
                 # v2
                 is_indexed_in_scopus = source.get('is_indexed_in_scopus', False)
+                summary_stats = source.get('summary_stats', {})
+                h_index = summary_stats.get('h_index', NOT_FOUND)
+                i10_index = summary_stats.get('i10_index', NOT_FOUND)
+                two_yr_mean_citedness = summary_stats.get('2yr_mean_citedness', NOT_FOUND)
+                host_organization_name = source.get('host_organization_name', NOT_FOUND)
+                apc_prices = source.get('apc_prices', NOT_FOUND)
+
+
+                
 
                 return {
                     "title": title,
@@ -96,6 +105,11 @@ def get_journal_metadata(id, is_issn=True):
                     "cited_by_count": cited_by_count,
                     "fields_of_research": fields_of_research,
                     "is_indexed_in_scopus": is_indexed_in_scopus,
+                    "h_index": h_index,
+                    "i10_index": i10_index,
+                    "two_yr_mean_citedness": two_yr_mean_citedness,
+                    "host_organization_name": host_organization_name,
+                    "apc_prices": apc_prices
                 }
         return None
     except Exception as e:
@@ -217,33 +231,41 @@ def get_paper_metadata_v2(paper_input, input_type):
 
 def get_journal_confidence(metadata):
     prompt = f"""
-    You are an expert in academic publishing. Evaluate the legitimacy of the following journal and provide a confidence score (0-100), where a higher score indicates greater legitimacy. 
-    Consider the following factors:
-    1. Publisher reputation: Journals published by reputable organizations (e.g., Nature Portfolio, Elsevier, Springer, Wiley, American Society for Microbiology) are more likely to be legitimate.
-    2. DOAJ indexing: Journals listed in the Directory of Open Access Journals (DOAJ) are more credible.
-    3. Citation impact: High citation counts indicate greater influence and legitimacy.
-    4. Publication volume: A higher number of works published can indicate credibility.
-    5. Fields of research: Journals with well-defined and respected fields of research are more likely to be legitimate.
+You are an expert in academic publishing. Evaluate the legitimacy of the following journal and provide a confidence score (0-100), where a higher score indicates greater legitimacy.
 
-    Recognize predatory journals by:
-    - Low citation counts.
-    - Lack of DOAJ indexing.
-    - Questionable or unknown publishers.
+**Scoring rules (strict, do not break these):**
+- If "In DOAJ" is False, the score MUST NOT exceed 50, no matter what.
+- If BOTH "In DOAJ" and "Indexed in Scopus" are False, the score MUST NOT exceed 40, no matter what.
+- If "In DOAJ" is True, start with a base score of 70.
+- If "Indexed in Scopus" is True, add 20 points. If False, subtract 20 points.
+- If "Host Organization Name" is None, Unknown, or Not Found, subtract 10 points.
+- If "H-Index", "2-Year Mean Citedness", "I10 Index", "Cited By Count", or "Total Works" are very low (compared to typical reputable journals), subtract up to 10 points.
+- If "Is Open Access" is True, add 2 points.
+- If "Homepage URL" is missing or unprofessional, subtract 2 points.
+- If "APC Prices" are excessive or hidden, subtract 2 points.
+- The final score must be between 0 and 100.
 
-    Use the following metadata to make your decision:
-    - Title: {metadata['title']}
-    - Publisher: {metadata['publisher']}
-    - Homepage URL: {metadata['homepage_url']}
-    - In DOAJ: {metadata['is_in_doaj']}
-    - Is Open Access: {metadata['is_open_access']}
-    - Country Code: {metadata['country_code']}
-    - Total Works: {metadata['works_count']}
-    - Cited By Count: {metadata['cited_by_count']}
-    - Fields of Research: {', '.join(metadata['fields_of_research'])}
-    - Is Indexed in Scopus: {metadata['is_indexed_in_scopus']}
+**DOAJ status is the most important factor. If the journal is not in DOAJ, it is highly suspicious and cannot be scored above 50. If not in DOAJ AND not in Scopus, it cannot be scored above 40.**
 
-    **Respond with only a single integer between 0 and 100, with no additional text or explanation.**
-    """
+**Use the following metadata to make your decision:**
+- In DOAJ: {metadata['is_in_doaj']}
+- Indexed in Scopus: {metadata['is_indexed_in_scopus']}
+- Host Organization Name: {metadata['host_organization_name']}
+- H-Index: {metadata['h_index']}
+- 2-Year Mean Citedness: {metadata['two_yr_mean_citedness']}
+- I10 Index: {metadata['i10_index']}
+- Cited By Count: {metadata['cited_by_count']}
+- Total Works: {metadata['works_count']}
+- Is Open Access: {metadata['is_open_access']}
+- Homepage URL: {metadata['homepage_url']}
+- APC Prices: {metadata['apc_prices']}
+- Title: {metadata['title']}
+- Publisher: {metadata['publisher']}
+- Country Code: {metadata['country_code']}
+- Fields of Research: {', '.join(metadata['fields_of_research'])}
+
+**Respond with only a single integer between 0 and 100, with no additional text or explanation.**
+"""
     try:
         response = anthropic.messages.create(
             model=ANTHROPIC_MODEL,
