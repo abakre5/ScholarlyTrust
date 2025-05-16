@@ -1,0 +1,22 @@
+Research Papers
+- Legitimate
+    - Deep Residual Learning for Image Recognition
+    - 10.1109/cvpr.2016.90
+    - Protein measurement with the Folin phenol reagent
+    - 10.1016/S0021-9258(19)52451-6
+- Illegitimate
+    - The Metaverse Revolution: Transforming the Future of Retail
+    - 10.32628/CSEIT251112391
+    - Revolutionizing Information Management: AI-Driven Decision Support Systems for Dynamic Business Environments
+    - 10.52783/jisem.v10i35s.6010
+Journals
+- Legitimate
+    - Microbiology and Molecular Biology Reviews
+    - 1092-2172
+    - Nature Communications
+    - 2041-1723
+- Illegitimate
+    - International Journal of Scientific Research in Computer Sciences and Engineering
+    - 2320-7639
+    - International Journal of Scientific Research in Computer Science Engineering and Information Technology
+    - 2456-3307

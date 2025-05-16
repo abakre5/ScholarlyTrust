@@ -55,7 +55,7 @@ def get_journal_metadata(id, is_issn=True):
                 return HIJACKED_ISSN
     except Exception as e:
         print(f"Error reading hijacked ISSNs file: {e}")
-        return ERROR_STATE
+        # return ERROR_STATE
     
     if is_issn:
         url = f"https://api.openalex.org/sources?filter=issn:{id}"
@@ -68,20 +68,22 @@ def get_journal_metadata(id, is_issn=True):
             if data['meta']['count'] > 0:
                 source = data['results'][0]
                 # Extract fields
-                title = source.get('display_name', 'Unknown')
+                title = source.get('display_name', NOT_FOUND)
                 if not is_issn and not title.upper() == id.upper():
                     return None
-                publisher = source.get('host_organization_name', 'Unknown')
+                publisher = source.get('display_name', NOT_FOUND)
                 homepage_url = source.get('homepage_url', 'N/A')
                 is_in_doaj = source.get('is_in_doaj', False)
                 is_open_access = source.get('is_oa', False)
-                country_code = source.get('country_code', 'Unknown')
+                country_code = source.get('country_code', NOT_FOUND)
                 works_count = source.get('works_count', 0)
                 cited_by_count = source.get('cited_by_count', 0)
                 fields_of_research = [
                     topic.get('display_name', 'Unknown')
                     for topic in source.get('topics', [])
                 ]
+                # v2
+                is_indexed_in_scopus = source.get('is_indexed_in_scopus', False)
 
                 return {
                     "title": title,
@@ -93,10 +95,12 @@ def get_journal_metadata(id, is_issn=True):
                     "works_count": works_count,
                     "cited_by_count": cited_by_count,
                     "fields_of_research": fields_of_research,
+                    "is_indexed_in_scopus": is_indexed_in_scopus,
                 }
         return None
     except Exception as e:
         print(f"Failed to fetch journal metadata: {e}")
+        traceback.print_exc()
         return ERROR_STATE
 
 def get_author_metadata_for_paper(paper_data):
@@ -236,6 +240,7 @@ def get_journal_confidence(metadata):
     - Total Works: {metadata['works_count']}
     - Cited By Count: {metadata['cited_by_count']}
     - Fields of Research: {', '.join(metadata['fields_of_research'])}
+    - Is Indexed in Scopus: {metadata['is_indexed_in_scopus']}
 
     **Respond with only a single integer between 0 and 100, with no additional text or explanation.**
     """
@@ -253,9 +258,8 @@ def get_journal_confidence(metadata):
             raw_score = int(match.group())
             normalized_score = int(100 / (1 + np.exp(-0.1 * (raw_score - 50))))
             return normalized_score
-        raise ValueError("No integer found in Claude response")
     except Exception as e:
-        raise Exception(f"Anthropic API error: {e}")
+        print(f"Failed to get journal confidence: {e}")
         return ERROR_STATE
 
 def get_paper_confidence(metadata):
@@ -442,3 +446,17 @@ def generate_paper_reason(confidence, metadata):
         f"{author_message} {affiliation_message} {doaj_message} {oa_message} "
         f"{concepts_message} {language_message} {doi_message}"
     )
+
+
+def view_journal_metadata(metadata, st):
+    st.subheader("Journal Metadata")
+    with st.expander("View Journal Metadata"):
+        st.write(f"**Title**: {str(metadata.get('title', 'Unknown'))}")
+        st.write(f"**Publisher**: {str(metadata.get('publisher', 'Unknown'))}")
+        st.write(f"**Homepage URL**: {str(metadata.get('homepage_url', 'N/A'))}")
+        st.write(f"**In DOAJ**: {'Yes' if metadata.get('is_in_doaj', False) else 'No'}")
+        st.write(f"**Is Open Access**: {'Yes' if metadata.get('is_open_access', False) else 'No'}")
+        st.write(f"**Country Code**: {str(metadata.get('country_code', 'Unknown'))}")
+        st.write(f"**Total Works**: {str(metadata.get('works_count', 'N/A'))}")
+        st.write(f"**Cited By Count**: {str(metadata.get('cited_by_count', 'N/A'))}")
+        st.write(f"**Fields of Research**: {', '.join(metadata.get('fields_of_research', ['Unknown']))}")

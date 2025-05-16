@@ -4,8 +4,8 @@ import streamlit as st
 import requests
 import re
 
-from api_utils import ERROR_STATE, HIJACKED_ISSN, generate_paper_reason, get_paper_metadata_v2, is_in_doaj, get_journal_metadata, get_journal_confidence, get_paper_confidence, view_paper_metadata
-import traceback
+from api_utils import ERROR_STATE, HIJACKED_ISSN, generate_paper_reason, get_paper_metadata_v2, is_in_doaj, get_journal_metadata, get_journal_confidence, get_paper_confidence, view_journal_metadata, view_paper_metadata
+
 
 def validate_issn(issn):
     """Validate ISSN format (e.g., 1234-5678)."""
@@ -18,7 +18,7 @@ def validate_title(title):
 
 def main():
     st.title("ScholarlyTrust: Research Integrity Checker")
-    st.write("Check the legitimacy of a journal (by ISSN) or a research paper (by DOI or title).")
+    st.write("Check the legitimacy of a journal (by ISSN or Name) or a research paper (by DOI or Title).")
     
     # Add disclaimer
     st.warning("**Disclaimer:** Results are based on available data and algorithms and may not be 100% accurate.")    
@@ -27,7 +27,9 @@ def main():
         check_type = st.radio("Select check type:", ("Journal", "Research Paper"))
         
         if check_type == "Journal":
-            input_type = st.radio("Select journal input type(ISSN is preferred input type):", ("Name", "ISSN"))
+            input_type = st.radio("Select journal input type (ISSN is preferred input type):", ("ISSN", "Name"))
+            if input_type == "Name":
+                st.info("The journal name should be an exact match (case-insensitive, but otherwise identical to the official journal name).")
             journal_input = st.text_input(f"Enter journal {input_type} (e.g., ISSN: 1092-2172, Name: Journal of Molecular Biology)", "")
             if st.button("Check Journal"):
                 if not journal_input:
@@ -47,7 +49,7 @@ def main():
                             metadata = get_journal_metadata(journal_input, False)  # You need to implement this function
                         
                         if metadata is ERROR_STATE:
-                            st.error("Something went wrong.")
+                            message_something_went_wrong()
                             return
                         if metadata is HIJACKED_ISSN:
                             st.error(f"This journal is definitely predatory as it is marked as a hijacked journal.")
@@ -60,51 +62,28 @@ def main():
                             )                       
                             return
                         
-                        try:
-                            confidence = get_journal_confidence(metadata)
-                            if confidence is ERROR_STATE:
-                                st.error("Something went wrong.")
-                                return
-                            if confidence >= 60:
-                                st.success(f"This journal is likely legitimate with {confidence}% confidence.")
-                            elif confidence > 30:
-                                st.warning(f"This journal is questionable with {confidence}% confidence.")
-                            else:
-                                st.error(f"This journal is likely predatory with {confidence}% confidence.")
-                            reason = generate_journal_reason(confidence, metadata)
-                        except ValueError:
-                            st.error("Invalid data received from the analysis service. Please try again later.")
+                        confidence = get_journal_confidence(metadata)
+                        if confidence is ERROR_STATE:
+                            st.error("Something went wrong.")
                             return
-                        except Exception:
-                            st.error("An unexpected error occurred during analysis. Please try again or contact support.")
-                            traceback.print_exc()
-                            return
-                    
-                    except requests.RequestException:
-                        st.error("Unable to connect to the data source. Please check your internet connection and try again.")
-                        return
+                        if confidence >= 60:
+                            st.success(f"This journal is likely legitimate with {confidence}% confidence.")
+                        elif confidence > 30:
+                            st.warning(f"This journal is questionable with {confidence}% confidence.")
+                        else:
+                            st.error(f"This journal is likely predatory with {confidence}% confidence.")
+                        reason = generate_journal_reason(confidence, metadata)
+                        st.subheader("Investigation Summary")
+                        st.write(reason)
+                        view_journal_metadata(metadata, st)
                     except Exception:
                         st.error("An unexpected error occurred while retrieving journal data. Please try again or contact support.")
                         return
                 
-                st.subheader("Journal Metadata")
-                with st.expander("View Journal Metadata"):
-                    st.write(f"**Title**: {str(metadata.get('title', 'Unknown'))}")
-                    st.write(f"**Publisher**: {str(metadata.get('publisher', 'Unknown'))}")
-                    st.write(f"**Homepage URL**: {str(metadata.get('homepage_url', 'N/A'))}")
-                    st.write(f"**In DOAJ**: {'Yes' if metadata.get('is_in_doaj', False) else 'No'}")
-                    st.write(f"**Is Open Access**: {'Yes' if metadata.get('is_open_access', False) else 'No'}")
-                    st.write(f"**Country Code**: {str(metadata.get('country_code', 'Unknown'))}")
-                    st.write(f"**Total Works**: {str(metadata.get('works_count', 'N/A'))}")
-                    st.write(f"**Cited By Count**: {str(metadata.get('cited_by_count', 'N/A'))}")
-                    st.write(f"**Fields of Research**: {', '.join(metadata.get('fields_of_research', ['Unknown']))}")
-                
-                st.subheader("Investigation Summary")
-                st.write(reason)
-      
-        
         else:
             input_type = st.radio("Select paper input type(DOI is preferred input type):", ("DOI", "Title"))
+            if input_type == "Title":
+                st.info("The research paper title should be an exact match (case-insensitive, but otherwise identical to the official research paper name).")
             paper_input = st.text_input(f"Enter paper {input_type} (e.g., DOI: 10.1128/mmbr.00144-23, Title: Microbiology of human spaceflight)", "")
             if st.button("Check Paper"):
                 if not paper_input:
@@ -153,10 +132,11 @@ def main():
         message_something_went_wrong()
     
     # Powered by Anthropic Footer
+        # Powered by Anthropic Footer
     st.markdown(
         """
         <div style="text-align: center; margin-top: 12px; font-size: 12px; color: #555;">
-            Powered by <a href="https://www.anthropic.com/" target="_blank">Anthropic</a><br>
+            Powered by <a href="https://www.anthropic.com/" target="_blank">Anthropic</a> & <a href="https://openalex.org/" target="_blank">OpenAlex</a><br>
             Developed by <a href="https://www.linkedin.com/in/abhishekbakare/" target="_blank">Abhishek Bakare</a>
         </div>
         """,
@@ -225,7 +205,7 @@ def generate_journal_reason(confidence, metadata):
 
 def message_something_went_wrong():
     """Display a message indicating something went wrong."""
-    st.error("Something went wrong. Please contact the administrator.")
+    st.error("Something went wrong. Please contact the administrator at abakre5@gmail.com")
 
 if __name__ == "__main__":
     main()
