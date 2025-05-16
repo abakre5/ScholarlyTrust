@@ -1,9 +1,11 @@
+import json
 import os
 import streamlit as st
 import requests
 import re
 
-from api_utils import ERROR_STATE, HIJACKED_ISSN, is_in_doaj, get_journal_metadata, get_paper_metadata, get_journal_confidence, get_paper_confidence
+from api_utils import ERROR_STATE, HIJACKED_ISSN, generate_paper_reason, get_paper_metadata_v2, is_in_doaj, get_journal_metadata, get_journal_confidence, get_paper_confidence, view_paper_metadata
+import traceback
 
 def validate_issn(issn):
     """Validate ISSN format (e.g., 1234-5678)."""
@@ -75,6 +77,7 @@ def main():
                             return
                         except Exception:
                             st.error("An unexpected error occurred during analysis. Please try again or contact support.")
+                            traceback.print_exc()
                             return
                     
                     except requests.RequestException:
@@ -114,9 +117,9 @@ def main():
                 with st.spinner("Analyzing your request..."):
                     try:
                         paper_input = paper_input.strip()
-                        metadata = get_paper_metadata(paper_input, input_type.lower())
+                        metadata = get_paper_metadata_v2(paper_input, input_type.lower())
                         if metadata is ERROR_STATE:
-                            st.error("Something went wrong.")
+                            message_something_went_wrong()
                             return
                         if not metadata or not isinstance(metadata, dict):
                             st.error(
@@ -126,48 +129,28 @@ def main():
                             )
                             return
                         
+                        confidence = get_paper_confidence(metadata)
+                        if confidence is ERROR_STATE:
+                            message_something_went_wrong()
+                            return
+                        research_paper_confidence_calculator(confidence)
                         try:
-                            confidence = get_paper_confidence(metadata)
-                            if confidence is ERROR_STATE:
-                                st.error("Something went wrong.")
-                                return
-                            if confidence >= 60:
-                                st.success(f"This paper is likely legitimate with {confidence}% confidence.")
-                            elif confidence > 30:
-                                st.warning(f"This paper is questionable with {confidence}% confidence.")
-                            else:
-                                st.error(f"This paper is likely predatory with {confidence}% confidence.")
                             reason = generate_paper_reason(confidence, metadata)
-                        
-                        except ValueError:
-                            st.error("Invalid data received from the analysis service. Please try again later.")
-                            return
+                            st.subheader("Investigation Summary")
+                            st.write(reason)
+                            view_paper_metadata(metadata, st)
                         except Exception:
-                            st.error("An unexpected error occurred during analysis. Please try again or contact support.")
+                            print("Tried to reason but failed")
                             return
-                    
-                    except requests.RequestException:
-                        st.error("Unable to connect to the data source. Please check your internet connection and try again.")
-                        return
+        
                     except Exception:
-                        st.error("An unexpected error occurred while retrieving paper data. Please try again or contact support.")
+                        message_something_went_wrong()
                         return
                 
-                st.subheader("Investigation Summary")
-                st.write(reason)
                 
-                with st.expander("View Paper Metadata"):
-                    st.write(f"**Title**: {str(metadata.get('title', 'Unknown'))}")
-                    st.write(f"**Journal ISSN**: {str(metadata.get('journal_issn', 'Unknown'))}")
-                    st.write(f"**Publication Year**: {str(metadata.get('publication_year', 'N/A'))}")
-                    st.write(f"**Cited By Count (per year)**: {str(round(float(metadata.get('cited_by_count', 0)), 2)) if isinstance(metadata.get('cited_by_count', 0), (int, float)) else 'N/A'}")
-                    st.write(f"**Author Count**: {str(metadata.get('author_count', 0))}")
-                    st.write(f"**In DOAJ**: {'Yes' if metadata.get('is_in_doaj', False) else 'No'}")
-                    st.write(f"**Publisher**: {str(metadata.get('publisher', 'Unknown'))}")
-                
+
     except Exception:
-        st.error("An unexpected error occurred in the application. Please refresh the page and try again.")
-        return
+        message_something_went_wrong()
     
     # Powered by Anthropic Footer
     st.markdown(
@@ -179,6 +162,14 @@ def main():
         """,
         unsafe_allow_html=True
     )
+
+def research_paper_confidence_calculator(confidence):
+    if confidence >= 60:
+        st.success(f"This paper is likely legitimate with {confidence}% confidence.")
+    elif confidence > 30:
+        st.warning(f"This paper is questionable with {confidence}% confidence.")
+    else:
+        st.error(f"This paper is likely predatory with {confidence}% confidence.")
 
 def generate_journal_reason(confidence, metadata):
     """Generate a reason for the journal's legitimacy based on confidence and metadata."""
@@ -232,77 +223,9 @@ def generate_journal_reason(confidence, metadata):
         f"{doaj_message} {works_message}"
     )
 
-def generate_paper_reason(confidence, metadata):
-    """Generate a reason for the paper's legitimacy based on confidence and metadata."""
-    title = metadata.get('title', 'an unknown title')
-    journal_issn = metadata.get('journal_issn', 'Unknown')
-    publication_year = metadata.get('publication_year', 'Unknown')
-    cited_by_count = metadata.get('cited_by_count', 0)
-    author_count = metadata.get('author_count', 0)
-    is_in_doaj = metadata.get('is_in_doaj', False)
-    publisher = metadata.get('publisher') or 'an unknown publisher'  # Fix for None or missing publisher
-    avg_author_publications = metadata.get('avg_author_publications', 0)
-    avg_author_cited_by_count = metadata.get('avg_author_cited_by_count', 0)
-    avg_author_2yr_citedness = metadata.get('avg_author_2yr_citedness', 0)
-    orcid_presence = metadata.get('orcid_presence', 'No')
-    top_concepts = metadata.get('top_concepts', 'Unknown')
-    publication_trend = metadata.get('publication_trend', 'Unknown')
-
-    # Handle missing or unknown data gracefully
-    citation_message = (
-        f"The paper has been cited {cited_by_count} times"
-        if cited_by_count > 0
-        else "but citation data is unavailable or not reported"
-    )
-    author_message = (
-        f"The paper has {author_count} author(s), {'most of whom have verified ORCID IDs' if orcid_presence == 'Yes' else 'but author verification is lacking'}."
-    )
-    if publisher is None:
-        publisher_message = "The research paper's publisher is not well-documented leading to major doubts of it's legitimacy."
-    else:
-        publisher_message = (
-            f"It’s published by {publisher}, which is {'widely known and trusted' if confidence >= 70 else 'not widely known or trusted'}."
-        )
-    doaj_message = (
-        f"The journal is {'listed' if is_in_doaj else 'not listed'} on a trusted directory (DOAJ), "
-        f"{'which adds to its credibility' if is_in_doaj else 'which raises some questions about its standards'}."
-    )
-    author_stats_message = (
-        f"The authors have an average of {avg_author_publications} publications and {avg_author_cited_by_count} citations, "
-        f"with a 2-year mean citedness of {avg_author_2yr_citedness}."
-        if avg_author_publications > 0 or avg_author_cited_by_count > 0
-        else "Author-level metrics are unavailable or not reported."
-    )
-    concepts_message = (
-        f"The paper focuses on concepts such as {top_concepts}."
-        if top_concepts != "Unknown" and top_concepts is not None and top_concepts != 'N/A'
-        else "The paper's key concepts are not well-defined."
-    )
-    publication_trend_message = (
-        f"The authors are affiliated with institutions such as {publication_trend.split(';')[0]}."
-        if publication_trend is not None and 'N/A' not in str(publication_trend).strip()
-        else "The authors' institutional affiliations are not well-documented."
-    )
-    journal_message = (
-        f"The paper was published in a journal with ISSN {journal_issn} in the year {publication_year}."
-        if journal_issn != "Unknown" and journal_issn != 'N/A' and publication_year != "Unknown" and publication_year != 'N/A'
-        else "The journal's ISSN or publication year is not well-documented which makes it suspicious."
-    )
-
-    # Generate confidence-based reasoning
-    if confidence >= 60:
-        confidence_message = f"We’re {confidence}% sure that the paper '{title}' is trustworthy because it has strong signs of quality."
-    elif confidence > 30:
-        confidence_message = f"We’re only {confidence}% sure about the paper '{title}' because it shows some mixed signs."
-    else:
-        confidence_message = f"We’re only {confidence}% confident in the paper '{title}' because it has serious red flags."
-
-    # Combine all messages into a single reason
-    return (
-        f"{confidence_message} {publisher_message} {journal_message} {citation_message}. "
-        f"{author_message} {doaj_message} {author_stats_message} "
-        f"{concepts_message} {publication_trend_message}"
-    )
+def message_something_went_wrong():
+    """Display a message indicating something went wrong."""
+    st.error("Something went wrong. Please contact the administrator.")
 
 if __name__ == "__main__":
     main()

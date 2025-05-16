@@ -1,3 +1,4 @@
+import traceback
 import requests
 import streamlit as st
 from anthropic import Anthropic
@@ -9,6 +10,7 @@ from config import ANTHROPIC_MODEL
 # Define constants
 HIJACKED_ISSN = "HIJACKED_ISSN"
 ERROR_STATE = "ERROR_STATE"
+NOT_FOUND = "Not Found"
 
 # Initialize Anthropic client
 try:
@@ -98,56 +100,38 @@ def get_journal_metadata(id, is_issn=True):
         return ERROR_STATE
 
 def get_author_metadata_for_paper(paper_data):
+    """
+    Returns a list of dicts, one per author, with:
+      - name (display_name)
+      - has_orcid (True/False)
+      - affiliation (display_name of the first institution)
+    """
     try:
         authors = paper_data.get('authorships', [])
-        if not authors:
-            return None
+        if authors is None or len(authors) == 0:
+            return NOT_FOUND
 
-        publication_counts = []
-        cited_by_counts = []
-        two_year_citedness = []
-        orcids = []
-        concepts = []
-        publication_trends = []
-        current_year = 2025
-
+        author_info = []
         for author in authors:
             author_data = author.get('author', {})
-            author_id = author_data.get('id', '').split('/')[-1]
-            author_name = author_data.get('display_name', 'Unknown')
-            orcid = author_data.get('orcid', None)
-
-            # ORCID presence
-            orcids.append(1 if orcid else 0)
-
-            # Extract concepts related to the author
-            paper_title = paper_data.get('title', '').lower()
-            author_concepts = [
-                f"{concept.get('display_name', 'Unknown')} (score: {concept.get('score', 0)})"
-                for concept in paper_data.get('concepts', [])
-                if concept.get('score', 0) > 0.5 and concept.get('display_name', '').lower() in paper_title
-            ]
-            concepts.append("; ".join(author_concepts) if author_concepts else "Unknown")
-
-            # Extract publication trends (if available)
+            name = author_data.get('display_name', NOT_FOUND)
+            has_orcid = author_data.get('orcid') != None and author_data.get('orcid') != "null"
             institutions = author.get('institutions', [])
-            institution_names = [inst.get('display_name', 'Unknown') for inst in institutions]
-            publication_trends.append(", ".join(institution_names) if institution_names else "N/A")
-
-        # Aggregate metadata
-        return {
-            'avg_author_publications': np.mean(publication_counts) if publication_counts else 0,
-            'avg_author_cited_by_count': np.mean(cited_by_counts) if cited_by_counts else 0,
-            'avg_author_2yr_citedness': np.mean(two_year_citedness) if two_year_citedness else 0,
-            'orcid_presence': 'Yes' if np.mean(orcids) > 0 else 'No',
-            'top_concepts': "; ".join(set(concepts)),
-            'publication_trend': "; ".join(set(publication_trends))
-        }
+            if institutions is None or len(institutions) == 0:
+                affiliation = NOT_FOUND
+            else:
+                affiliation = institutions[0].get('display_name', NOT_FOUND)
+            author_info.append({
+                'name': name,
+                'has_orcid': has_orcid,
+                'affiliation': affiliation
+            })
+        return author_info
     except Exception as e:
         print(f"Failed to fetch author metadata: {e}")
         return ERROR_STATE
 
-def get_paper_metadata(paper_input, input_type):
+def get_paper_metadata_v2(paper_input, input_type):
     if input_type == 'doi':
         url = f"https://api.openalex.org/works?filter=doi:{paper_input}"
     else:
@@ -155,51 +139,76 @@ def get_paper_metadata(paper_input, input_type):
     try:
         response = requests.get(url)
         if response.status_code == 200:
-            data = response.json()
-            if data['meta']['count'] > 0:
-                paper = data['results'][0]
-                # Extract journal ISSN
-                journal_issn = paper.get('primary_location', {}).get('source', {}).get('issn_l', '') or \
-                               (paper.get('primary_location', {}).get('source', {}).get('issn', [])[0] if paper.get('primary_location', {}).get('source', {}).get('issn') else '')
+            response_data = response.json()
+            response_data = response_data.get('results', [])
+            if response_data is None or len(response_data) == 0:
+                # No results found
+                return NOT_FOUND
+            
+            # 0th element is the most relevant
+            paper = response_data[0]
 
-                # Extract publication year and citation data
-                publication_year = paper.get('publication_year', 0)
-                cited_by_count = paper.get('cited_by_count', 0)
-                years_since_publication = max(1, 2025 - publication_year)
-                normalized_citations = cited_by_count / years_since_publication if publication_year >= 2023 else cited_by_count
-                normalized_citations = max(normalized_citations, 3.0) if publication_year >= 2024 else normalized_citations
+            # Only focus on locations if locations_count >= 1
+            locations_count = paper.get('locations_count', 0)
+            locations = paper.get('locations', [])
+            if locations_count == 0:
+                # No locations found
+                return NOT_FOUND
+            location_data = None
+            for loc in locations:
+                if loc.get('source'):
+                    location_data = loc
+                    break
+            if location_data is None:
+                # No valid location with 'source' found
+                return NOT_FOUND
 
-                # Build paper metadata dictionary
-                paper_metadata = {
-                    'title': paper.get('title', 'Unknown'),
-                    'journal_issn': journal_issn,
-                    'publication_year': publication_year,
-                    'cited_by_count': normalized_citations,
-                    'author_count': len(paper.get('authorships', [])),
-                    'is_in_doaj': paper.get('primary_location', {}).get('source', {}).get('is_in_doaj', False),
-                    'publisher': paper.get('primary_location', {}).get('source', {}).get('host_organization_name', 'Unknown')
-                }
+            # Extract relevant metadata from location_data
+            publication_year = paper.get('publication_year', NOT_FOUND)
+            cited_by_count = paper.get('cited_by_count', NOT_FOUND)
+            from datetime import datetime
+            current_year = datetime.now().year
+            years_since_publication = (
+                max(1, current_year - publication_year) if isinstance(publication_year, int) else NOT_FOUND
+            )
+            total_paper_citation_count = cited_by_count
 
-                # Add author metadata
-                author_metadata = get_author_metadata_for_paper(paper)
-                if author_metadata == ERROR_STATE:
-                    return ERROR_STATE
-                if author_metadata:
-                    paper_metadata.update(author_metadata)
-                else:
-                    paper_metadata.update({
-                        'avg_author_publications': 0,
-                        'avg_author_cited_by_count': 0,
-                        'avg_author_2yr_citedness': 0,
-                        'orcid_presence': 'No',
-                        'top_concepts': 'Unknown',
-                        'publication_trend': 'N/A'
-                    })
+            # Author metadata
+            author_metadata = get_author_metadata_for_paper(paper)
 
-                return paper_metadata
-        return None
+            # Extract from location_data or mark as NOT_FOUND
+            is_in_doaj = location_data.get('source', {}).get('is_in_doaj', NOT_FOUND)
+            publisher = location_data.get('source', {}).get('display_name', NOT_FOUND)
+
+            # Other relevant metadata
+            title = paper.get('title', NOT_FOUND)
+            author_count = len(author_metadata) if isinstance(author_metadata, list) else NOT_FOUND
+            open_access = location_data.get('is_oa', NOT_FOUND)
+            concepts = paper.get('concepts', NOT_FOUND)
+            language = paper.get('language', NOT_FOUND)
+            doi = paper.get('doi', NOT_FOUND)
+
+            return {
+                'title': title,
+                'publication_year': publication_year,
+                'cited_by_count': cited_by_count,
+                'years_since_publication': years_since_publication,
+                'total_paper_citation_count': total_paper_citation_count,
+                'author_metadata': author_metadata,
+                'author_count': author_count,
+                'is_in_doaj': is_in_doaj,
+                'publisher': publisher,
+                'open_access': open_access,
+                'concepts': concepts,
+                'language': language,
+                'doi': doi,
+                'locations_count': locations_count,
+                'locations': locations
+            }
+        return NOT_FOUND
     except Exception as e:
         print(f"Failed to fetch paper metadata: {e}")
+        traceback.print_exc()
         return ERROR_STATE
 
 def get_journal_confidence(metadata):
@@ -250,11 +259,47 @@ def get_journal_confidence(metadata):
         return ERROR_STATE
 
 def get_paper_confidence(metadata):
-    new_researcher = metadata.get('avg_author_publications', 0) < 5
-    if new_researcher:
-        prompt = f"You are an expert in academic publishing. Provide a confidence score (0-100) indicating the likelihood that the paper is legitimate (higher score = more legitimate). For new researchers (low publication count), assign weights: DOAJ indexing (40%, journals listed in DOAJ are highly credible), ORCID presence (25%), publisher reputation (15%, high for American Society for Microbiology, Nature, Elsevier, Springer, Wiley), external recognition (5%, citations/co-authorship in reputable venues as proxy for media coverage), publication trends (3%), concept alignment (2%). Recognize predatory papers (e.g., ISSN 2313-1799) by non-DOAJ journals, no ORCID, or misaligned concepts, but avoid flagging new researchers unless clear evidence exists. A paper is legitimate if published by reputable publishers (e.g., ASM for ISSN 1092-2172), authors have ORCID, or the journal is in DOAJ. Ensure top concepts align with paper title: {metadata['title']}. Metadata: Title: {metadata['title']}, Journal ISSN: {metadata['journal_issn'] or 'Unknown'}, Publication Year: {metadata['publication_year']}, Cited By Count (per year): {metadata['cited_by_count']}, Author Count: {metadata['author_count']}, In DOAJ: {metadata['is_in_doaj']}, Average Author Publication Count (normalized): {metadata['avg_author_publications']}, Average Author Total Citations (normalized): {metadata['avg_author_cited_by_count']}, Average Author 2-Year Mean Citedness: {metadata['avg_author_2yr_citedness']}, ORCID Presence: {metadata['orcid_presence']}, Top Author Concepts: {metadata['top_concepts']}, Author Publication Trend (Last 5 Years): {metadata['publication_trend']}, Publisher: {metadata['publisher']}, New Researcher: {'Yes' if new_researcher else 'No'}. **Respond with only a single integer between 0 and 100, with no additional text or explanation.**"
+    """
+    Given paper metadata, generate a confidence score (0-100) for legitimacy.
+    Uses: DOAJ status, publisher, author ORCID, author affiliations, open access, concepts, citation count, etc.
+    """
+    # Prepare author-level summaries
+    author_orcid_count = sum(1 for a in metadata.get('author_metadata', []) if a.get('has_orcid'))
+    author_affiliations = [a.get('affiliation') for a in metadata.get('author_metadata', [])]
+    has_affiliation = any(aff and aff != NOT_FOUND for aff in author_affiliations)
+    author_count = metadata.get('author_count', 0)
+    orcid_presence = "Yes" if author_orcid_count > 0 else "No"
+
+    # Prepare concept summary
+    concepts = metadata.get('concepts', [])
+    if isinstance(concepts, list) and concepts:
+        top_concepts = ", ".join([c.get('display_name', '') for c in concepts if c.get('score', 0) > 0.3])
     else:
-        prompt = f"You are an expert in academic publishing. Provide a confidence score (0-100) indicating the likelihood that the paper is legitimate (higher score = more legitimate). Assign weights: DOAJ indexing (40%, journals listed in DOAJ are highly credible), ORCID presence (20%), external recognition (15%, citations/co-authorship in reputable venues as proxy for media coverage), publication trends (5%), concept alignment (5%), publisher reputation (5%, high for American Society for Microbiology, Nature, Elsevier, Springer, Wiley). Recognize predatory papers (e.g., ISSN 2313-1799) by non-DOAJ journals, no ORCID, or misaligned concepts. A paper is legitimate if authors have ORCID, the journal is in DOAJ, or it is published by reputable publishers (e.g., ASM for ISSN 1092-2172). Ensure top concepts align with paper title: {metadata['title']}. Metadata: Title: {metadata['title']}, Journal ISSN: {metadata['journal_issn'] or 'Unknown'}, Publication Year: {metadata['publication_year']}, Cited By Count (per year): {metadata['cited_by_count']}, Author Count: {metadata['author_count']}, In DOAJ: {metadata['is_in_doaj']}, Average Author Publication Count (normalized): {metadata['avg_author_publications']}, Average Author Total Citations (normalized): {metadata['avg_author_cited_by_count']}, Average Author 2-Year Mean Citedness: {metadata['avg_author_2yr_citedness']}, ORCID Presence: {metadata['orcid_presence']}, Top Author Concepts: {metadata['top_concepts']}, Author Publication Trend (Last 5 Years): {metadata['publication_trend']}, Publisher: {metadata['publisher']}, New Researcher: {'Yes' if new_researcher else 'No'}. **Respond with only a single integer between 0 and 100, with no additional text or explanation.**"
+        top_concepts = "Unknown"
+
+    # Compose prompt for LLM
+    prompt = (
+        f"You are an expert in academic publishing. Provide a confidence score (0-100) indicating the likelihood that the paper is legitimate (higher score = more legitimate). "
+        f"Assign weights: DOAJ indexing (40%, journals listed in DOAJ are highly credible), ORCID presence among authors (20%), publisher reputation (15%, high for American Society for Microbiology, Nature, Elsevier, Springer, Wiley), "
+        f"external recognition (10%, citations/co-authorship in reputable venues as proxy for media coverage), author affiliations (5%), concept alignment (5%), open access status (5%). "
+        f"Recognize predatory papers (e.g., ISSN 2313-1799) by non-DOAJ journals, no ORCID, no reputable affiliations, or misaligned concepts. "
+        f"A paper is legitimate if published by reputable publishers, authors have ORCID, or the journal is in DOAJ. "
+        f"Ensure top concepts align with paper title: {metadata.get('title', 'Unknown')}. "
+        f"Metadata: Title: {metadata.get('title', 'Unknown')}, "
+        f"Publication Year: {metadata.get('publication_year', 'Unknown')}, "
+        f"Cited By Count: {metadata.get('cited_by_count', 'Unknown')}, "
+        f"Years Since Publication: {metadata.get('years_since_publication', 'Unknown')}, "
+        f"Author Count: {author_count}, "
+        f"In DOAJ: {metadata.get('is_in_doaj', 'Unknown')}, "
+        f"Publisher: {metadata.get('publisher', 'Unknown')}, "
+        f"Open Access: {metadata.get('open_access', 'Unknown')}, "
+        f"ORCID Presence: {orcid_presence}, "
+        f"Author Affiliations Present: {'Yes' if has_affiliation else 'No'}, "
+        f"Top Concepts: {top_concepts}, "
+        f"Language: {metadata.get('language', 'Unknown')}, "
+        f"DOI: {metadata.get('doi', 'Unknown')}. "
+        f"**Respond with only a single integer between 0 and 100, with no additional text or explanation.**"
+    )
     try:
         response = anthropic.messages.create(
             model=ANTHROPIC_MODEL,
@@ -271,6 +316,129 @@ def get_paper_confidence(metadata):
             return normalized_score
         raise ValueError("No integer found in Claude response")
     except Exception as e:
-        raise Exception(f"Anthropic API error: {e}")
         return ERROR_STATE
     
+def view_paper_metadata(metadata, st):
+    """Display paper metadata in a Streamlit expander."""
+    with st.expander("View Paper Metadata"):
+        st.write(f"**Title**: {str(metadata.get('title', 'Unknown'))}")
+        # Journal name from first location's source.display_name if available
+        journal_name = "Unknown"
+        locations = metadata.get('locations', [])
+        if locations and isinstance(locations, list):
+            source = locations[0].get('source', {}) if locations[0].get('source') else {}
+            journal_name = source.get('display_name', 'Unknown')
+        st.write(f"**Journal Name**: {journal_name}")
+        st.write(f"**Publication Year**: {str(metadata.get('publication_year', 'N/A'))}")
+        st.write(f"**Cited By Count**: {str(metadata.get('cited_by_count', 'N/A'))}")
+        st.write(f"**Years Since Publication**: {str(metadata.get('years_since_publication', 'N/A'))}")
+        st.write(f"**Total Paper Citation Count**: {str(metadata.get('total_paper_citation_count', 'N/A'))}")
+        st.write(f"**Author Count**: {str(metadata.get('author_count', 'N/A'))}")
+        st.write(f"**In DOAJ**: {'Yes' if metadata.get('is_in_doaj', False) else 'No'}")
+        st.write(f"**Publisher**: {str(metadata.get('publisher', 'Unknown'))}")
+        st.write(f"**Open Access**: {'Yes' if metadata.get('open_access', False) else 'No'}")
+        st.write(f"**Language**: {str(metadata.get('language', 'Unknown'))}")
+        st.write(f"**DOI**: {str(metadata.get('doi', 'Unknown'))}")
+        st.write(f"**Total Locations**: {str(metadata.get('locations_count', 'N/A'))}")
+
+        # Show concepts if available
+        concepts = metadata.get('concepts', [])
+        if isinstance(concepts, list) and concepts:
+            st.write("**Key Concepts:**")
+            for c in concepts:
+                st.write(f"- {c.get('display_name', 'Unknown')} (score: {round(c.get('score', 0), 2)})")
+
+        # Show author details
+        author_metadata = metadata.get('author_metadata', [])
+        if isinstance(author_metadata, list) and author_metadata:
+            st.write("**Authors:**")
+            for a in author_metadata:
+                st.write(
+                    f"- {a.get('name', 'Unknown')} | ORCID: {'Yes' if a.get('has_orcid', False) else 'No'} | Affiliation: {a.get('affiliation', 'Unknown')}"
+                )
+
+
+def generate_paper_reason(confidence, metadata):
+    """Generate a reason for the paper's legitimacy based on confidence and metadata."""
+    title = metadata.get('title', 'an unknown title')
+    publication_year = metadata.get('publication_year', 'Unknown')
+    cited_by_count = metadata.get('cited_by_count', 0)
+    years_since_publication = metadata.get('years_since_publication', 'Unknown')
+    total_paper_citation_count = metadata.get('total_paper_citation_count', 0)
+    author_metadata = metadata.get('author_metadata', [])
+    author_count = metadata.get('author_count', 0)
+    is_in_doaj = metadata.get('is_in_doaj', False)
+    publisher = metadata.get('publisher') or 'an unknown publisher'
+    open_access = metadata.get('open_access', 'Unknown')
+    concepts = metadata.get('concepts', [])
+    language = metadata.get('language', 'Unknown')
+    doi = metadata.get('doi', 'Unknown')
+    locations_count = metadata.get('locations_count', 0)
+    locations = metadata.get('locations', [])
+
+    # Author details
+    orcid_count = sum(1 for a in author_metadata if a.get('has_orcid'))
+    has_affiliation = any(a.get('affiliation') and a.get('affiliation') != 'NOT_FOUND' for a in author_metadata)
+    author_names = [a.get('name', 'Unknown') for a in author_metadata]
+    author_affiliations = [
+        a.get('affiliation', 'Unknown') if a.get('affiliation') else "Unknown"
+        for a in author_metadata
+    ]
+
+    # Concepts summary
+    if isinstance(concepts, list) and concepts:
+        top_concepts = ", ".join([c.get('display_name', '') for c in concepts if c.get('score', 0) > 0.3])
+    else:
+        top_concepts = "Unknown"
+
+    # Location summary
+    location_summary = ""
+    if locations_count > 0 and locations:
+        source = locations[0].get('source', {}) if locations[0].get('source') else {}
+        journal_name = source.get('display_name', 'Unknown')
+        location_summary = f"Published in '{journal_name}'."
+    else:
+        location_summary = "Journal or publication venue is not well-documented."
+
+    # Compose reason
+    citation_message = (
+        f"The paper has been cited {cited_by_count} times"
+        if cited_by_count and cited_by_count > 0
+        else "Citation data is unavailable or not reported"
+    )
+    author_message = (
+        f"Authored by {author_count} researcher(s): {', '.join(author_names)}. "
+        f"{orcid_count} {'has' if orcid_count == 1 else 'have'} ORCID(s)."
+    )
+    affiliation_message = (
+        f"Affiliations include: {', '.join(author_affiliations)}."
+        if has_affiliation else "Author affiliations are not well-documented."
+    )
+    doaj_message = (
+        f"The journal is {'listed' if is_in_doaj else 'not listed'} in DOAJ, "
+        f"{'which adds to its credibility.' if is_in_doaj else 'which raises some questions about its standards.'}"
+    )
+    oa_message = (
+        f"The paper is {'open access' if open_access else 'not open access'}."
+        if open_access != 'Unknown' else "Open access status is unknown."
+    )
+    concepts_message = (
+        f"Key concepts: {top_concepts}."
+        if top_concepts != "Unknown" else "The paper's key concepts are not well-defined."
+    )
+    language_message = f"Language: {language}."
+    doi_message = f"DOI: {doi}."
+
+    # Confidence-based summary
+    if confidence >= 60:
+        confidence_message = f"We’re {confidence}% sure that the paper '{title}' is trustworthy because it has strong signs of quality."
+    elif confidence > 30:
+        confidence_message = f"We’re only {confidence}% sure about the paper '{title}' because it shows some mixed signs."
+    else:
+        confidence_message = f"We’re only {confidence}% confident in the paper '{title}' because it has serious red flags."
+
+    return (
+        f"{confidence_message} {location_summary} {citation_message}. "
+        f"{author_message} {affiliation_message} {doaj_message} {oa_message} "
+        f"{concepts_message} {language_message} {doi_message}"
+    )
