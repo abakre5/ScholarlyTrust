@@ -110,7 +110,7 @@ def get_journal_metadata(id, is_issn=True):
     except Exception as e:
         st.error("Error reading hijacked ISSNs or journal names file: " + str(e))
         print(f"Error reading hijacked ISSNs file: {e}")
-        return ERROR_STATE
+        # return ERROR_STATE
 
     if is_issn:
         url = f"https://api.openalex.org/sources?filter=issn:{id}"
