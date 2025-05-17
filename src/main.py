@@ -62,6 +62,7 @@ def main():
                         
                         if metadata is ERROR_STATE:
                             message_something_went_wrong()
+                            st.error("An error occurred while retrieving journal data. Please try again or contact support.")
                             return
                         if metadata is HIJACKED_ISSN:
                             st.error(f"This journal is definitely predatory as it is marked as a hijacked journal.")
@@ -102,6 +103,7 @@ def main():
                         paper_input = paper_input.strip()
                         metadata = get_paper_metadata_v2(paper_input, input_type.lower())
                         if metadata is ERROR_STATE:
+                            st.error("An error occurred while retrieving paper data. Please try again or contact support.")
                             message_something_went_wrong()
                             return
                         if not metadata or not isinstance(metadata, dict):
@@ -114,19 +116,22 @@ def main():
                         
                         confidence, reason = get_paper_credibility(metadata)
                         if confidence is ERROR_STATE or reason is ERROR_STATE:
+                            st.error("An error occurred while retrieving paper credibility. Please try again or contact support.")
                             message_something_went_wrong()
                             return
                         display_confidence(confidence, is_journal=False)
                         display_investigation_summary(reason)
         
-                    except Exception as e:
-                        message_something_went_wrong(e)
+                    except Exception:
+                        st.error("An unexpected error occurred INNER")
+                        message_something_went_wrong()
                         return
                 
                 
 
-    except Exception as e:
-        message_something_went_wrong(e)
+    except Exception:
+        st.error("An unexpected error occurred OUTER")
+        message_something_went_wrong()
     
     st.markdown(
         """
@@ -151,10 +156,9 @@ def display_investigation_summary(reason):
     st.subheader("Investigation Summary")
     st.markdown(reason, unsafe_allow_html=True)
 
-def message_something_went_wrong(exception=None):
+def message_something_went_wrong():
     """Display a message indicating something went wrong."""
     st.error("Something went wrong. Please contact the administrator at abakre5@gmail.com")
-    st.error(exception)
 
 if __name__ == "__main__":
     main()
