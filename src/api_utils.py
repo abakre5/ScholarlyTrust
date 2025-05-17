@@ -372,7 +372,7 @@ Consider all signals: author ORCID and affiliations, publisher reputation, journ
 
 Respond in this format:
 Confidence Score: [score]
-Rationale (HTML): [A short, well-formed HTML block. Use <ul> and <li> for lists, and <p> for paragraphs. Do not mix plain text and HTML tags outside of a block. All content should be inside <p>, <ul>, <li>, or <b> tags as appropriate. The reasoning should be a very convincing, max 300 words. 
+Rationale (HTML): [A short, well-formed HTML block. Use <ul> and <li> for lists, <a> for links and <p> for paragraphs. Do not mix plain text and HTML tags outside of a block. All content should be inside <p>, <ul>, <li>, or <b> tags as appropriate. The reasoning should be a very convincing, max 300 words. 
 If possible, include specific proofs or evidence (such as direct metadata values, explicit journal or publisher names, or citation counts) that support your score. 
 If you can, add external links to authoritative sources (e.g., DOAJ, publisher homepage, or retraction notices) as HTML <a> tags to increase credibility. 
 This string will be shown directly in a web UI.]
@@ -492,7 +492,7 @@ Consider all signals: DOAJ and core index status, publisher and host organizatio
 
 Respond in this format:
 Confidence Score: [score]
-Rationale (HTML): [A short, well-formed HTML block. Use <ul> and <li> for lists, and <p> for paragraphs. Do not mix plain text and HTML tags outside of a block. All content should be inside <p>, <ul>, <li>, or <b> tags as appropriate. The reasoning should be a very convincing, max 300 words. 
+Rationale (HTML): [A short, well-formed HTML block. Use <ul> and <li> for lists, <a> for links and <p> for paragraphs. Do not mix plain text and HTML tags outside of a block. All content should be inside <p>, <ul>, <li>, or <b> tags as appropriate. The reasoning should be a very convincing, max 300 words. 
 If possible, include specific proofs or evidence (such as direct metadata values, explicit journal or publisher names, or citation counts) that support your score. 
 If you can, add external links to authoritative sources (e.g., DOAJ, publisher homepage, or retraction notices) as HTML <a> tags to increase credibility. 
 This string will be shown directly in a web UI.]
