@@ -4,7 +4,7 @@ import streamlit as st
 import requests
 import re
 
-from api_utils import ERROR_STATE, HIJACKED_ISSN, generate_paper_reason, get_paper_metadata_v2, is_in_doaj, get_journal_metadata, get_journal_confidence, get_paper_confidence, view_journal_metadata, view_paper_metadata
+from api_utils import ERROR_STATE, HIJACKED_ISSN, get_journal_credibility, get_paper_credibility, get_paper_metadata_v2, get_journal_metadata
 
 
 def validate_issn(issn):
@@ -56,26 +56,18 @@ def main():
                             return
                         if not metadata or not isinstance(metadata, dict):
                             st.error(
-                                "The journal could not be found in our trusted sources. "
-                                "If you are certain the input is correct, this is almost certainly not a legitimate or reputable journal. "
-                                "Otherwise, please double-check your input for typos."
+                                "We could not locate this paper in any of our trusted scholarly databases, and no reliable metadata is available. "
+    "If you are confident that your input is correct, this strongly suggests the work is not recognized by reputable academic sources. "
+    "Otherwise, please carefully review your input for possible errors or typos."
                             )                       
                             return
                         
-                        confidence = get_journal_confidence(metadata)
+                        confidence, reason = get_journal_credibility(metadata)
                         if confidence is ERROR_STATE:
                             st.error("Something went wrong.")
                             return
-                        if confidence >= 60:
-                            st.success(f"This journal is likely legitimate with {confidence}% confidence.")
-                        elif confidence > 30:
-                            st.warning(f"This journal is questionable with {confidence}% confidence.")
-                        else:
-                            st.error(f"This journal is likely predatory with {confidence}% confidence.")
-                        reason = generate_journal_reason(confidence, metadata)
-                        st.subheader("Investigation Summary")
-                        st.write(reason)
-                        view_journal_metadata(metadata, st)
+                        display_confidence(confidence, is_journal=True)
+                        display_investigation_summary(reason)
                     except Exception:
                         st.error("An unexpected error occurred while retrieving journal data. Please try again or contact support.")
                         return
@@ -84,7 +76,7 @@ def main():
             input_type = st.radio("Select paper input type(DOI is preferred input type):", ("DOI", "Title"))
             if input_type == "Title":
                 st.info("The research paper title should be an exact match (case-insensitive, but otherwise identical to the official research paper name).")
-            paper_input = st.text_input(f"Enter paper {input_type} (e.g., DOI: 10.1128/mmbr.00144-23, Title: Microbiology of human spaceflight)", "")
+            paper_input = st.text_input(f"Enter paper {input_type} (e.g., DOI: 10.1128/mmbr.00144-23, Title: Microbiology of human spaceflight: microbial responses to mechanical forces that impact health and habitat sustainability)", "")
             if st.button("Check Paper"):
                 if not paper_input:
                     st.error(f"Please enter a valid {input_type}.")
@@ -102,21 +94,18 @@ def main():
                             return
                         if not metadata or not isinstance(metadata, dict):
                             st.error(
-                                f"The paper could not be found in our trusted sources or its metadata is unavailable. "
-                                f"If you are certain the input is correct, this is almost certainly not a legitimate scholarly work. "
-                                f"Otherwise, please double-check your input for typos."
+                                "We could not locate this paper in any of our trusted scholarly databases, and no reliable metadata is available. "
+    "If you are confident that your input is correct, this strongly suggests the work is not recognized by reputable academic sources. "
+    "Otherwise, please carefully review your input for possible errors or typos."
                             )
                             return
                         
-                        confidence = get_paper_confidence(metadata)
-                        if confidence is ERROR_STATE:
+                        confidence, reason = get_paper_credibility(metadata)
+                        if confidence is ERROR_STATE or reason is ERROR_STATE:
                             message_something_went_wrong()
                             return
-                        research_paper_confidence_calculator(confidence)
-                        reason = generate_paper_reason(confidence, metadata)
-                        st.subheader("Investigation Summary")
-                        st.write(reason)
-                        view_paper_metadata(metadata, st)
+                        display_confidence(confidence, is_journal=False)
+                        display_investigation_summary(reason)
         
                     except Exception:
                         message_something_went_wrong()
@@ -127,8 +116,6 @@ def main():
     except Exception:
         message_something_went_wrong()
     
-    # Powered by Anthropic Footer
-        # Powered by Anthropic Footer
     st.markdown(
         """
         <div style="text-align: center; margin-top: 12px; font-size: 12px; color: #555;">
@@ -139,65 +126,18 @@ def main():
         unsafe_allow_html=True
     )
 
-def research_paper_confidence_calculator(confidence):
-    if confidence >= 60:
-        st.success(f"This paper is likely legitimate with {confidence}% confidence.")
+def display_confidence(confidence, is_journal=True):
+    """Display the confidence level and corresponding message."""
+    if confidence >= 70:
+        st.success(f"This {'journal' if is_journal else 'research paper'} demonstrates strong indicators of legitimacy ({confidence}% confidence).")
     elif confidence > 30:
-        st.warning(f"This paper is questionable with {confidence}% confidence.")
-    else:
-        st.error(f"This paper is likely predatory with {confidence}% confidence.")
+        st.warning(f"This {'journal' if is_journal else 'research paper'} shows several questionable indicators and should be treated with caution ({confidence}% confidence).")
+    else:    
+        st.error(f"This {'journal' if is_journal else 'research paper'} is likely predatory with {confidence}% confidence.")
 
-def generate_journal_reason(confidence, metadata):
-    """Generate a reason for the journal's legitimacy based on confidence and metadata."""
-    citations_count = metadata.get('cited_by_count', 0)
-    is_in_doaj = metadata.get('is_in_doaj', False)
-    publisher = metadata.get('publisher', 'an unknown publisher')
-    works_count = metadata.get('works_count', 0)
-    title = metadata.get('title', 'an unknown title')
-    fields_of_research = metadata.get('fields_of_research', ['Unknown'])[:3]
-
-    # Handle unknown or missing data gracefully
-    avg_citations_message = (
-        f"with total {citations_count} citations"
-        if citations_count > 0
-        else "but citation data is unavailable or not reported"
-    )
-    fields_message = (
-        f"The journal focuses on fields such as {', '.join(fields_of_research)}."
-        if fields_of_research and fields_of_research[0] != "Unknown"
-        else "The journal's fields of research are not well-defined."
-    )
-    doaj_message = (
-        f"It’s {'listed' if is_in_doaj else 'not listed'} on a trusted journal directory (DOAJ), "
-        f"{'which adds to its credibility' if is_in_doaj else 'which raises some questions about its standards'}."
-    )
-    publisher_message = ""
-    if publisher is None:
-        publisher_message = "The journal's publisher is not well-documented leading to major doubts of it's legitimacy."
-    else:
-        publisher_message = (
-            f"It’s run by {publisher}, which is {'widely known and trusted' if confidence >= 70 else 'not widely known or trusted'}."
-        )
-    works_message = (
-        f"The journal has published {works_count} works in total."
-        if works_count > 0
-        else "The journal's publication volume is not reported."
-    )
-
-    # Generate confidence-based reasoning
-    if confidence >= 60:
-        confidence_message = f"We’re {confidence}% sure that the journal '{title}' is trustworthy because it has strong signs of quality."
-    elif confidence > 30:
-        confidence_message = f"We’re only {confidence}% sure about the journal '{title}' because it shows some mixed signs."
-    else:
-        confidence_message = f"We’re only {confidence}% confident in the journal '{title}' because it has serious red flags."
-
-    # Combine all messages into a single reason
-    return (
-        f"{confidence_message} {publisher_message} {fields_message} "
-        f"The journal’s articles are often read and cited {avg_citations_message}. "
-        f"{doaj_message} {works_message}"
-    )
+def display_investigation_summary(reason):
+    st.subheader("Investigation Summary")
+    st.markdown(reason, unsafe_allow_html=True)
 
 def message_something_went_wrong():
     """Display a message indicating something went wrong."""

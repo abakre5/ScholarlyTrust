@@ -1,10 +1,10 @@
+import re
 import traceback
 import requests
 import streamlit as st
 from anthropic import Anthropic
 import numpy as np
 import os
-import re
 from config import ANTHROPIC_MODEL
 
 # Define constants
@@ -62,6 +62,8 @@ def get_journal_authors(source_id, max_works=100):
                 author_data = author.get('author', {})
                 name = author_data.get('display_name', NOT_FOUND)
                 orcid = author_data.get('orcid', NOT_FOUND)
+                if orcid == "null" or orcid == None:
+                    orcid = NOT_FOUND
                 institutions = author.get('institutions', [])
                 affiliation = institutions[0]['display_name'] if institutions and len(institutions[0]) else NOT_FOUND
                 authors.append({
@@ -75,7 +77,9 @@ def get_journal_authors(source_id, max_works=100):
         return []
 
 def get_journal_metadata(id, is_issn=True):
-    # Check if the ISSN is in the hijacked list
+    """
+    Fetches journal metadata from OpenAlex, including retraction statistics and author info.
+    """
     hijacked_issns_file = "/workspaces/ScholarlyTrust/docs/hijacked_issn.txt"
     hijacked_journal_names_file = "/workspaces/ScholarlyTrust/docs/hijacked_journal_title.txt"
     try:
@@ -91,8 +95,8 @@ def get_journal_metadata(id, is_issn=True):
                 return HIJACKED_ISSN
     except Exception as e:
         print(f"Error reading hijacked ISSNs file: {e}")
-        # return ERROR_STATE
-    
+        return ERROR_STATE
+
     if is_issn:
         url = f"https://api.openalex.org/sources?filter=issn:{id}"
     else:
@@ -103,7 +107,6 @@ def get_journal_metadata(id, is_issn=True):
             data = response.json()
             if data['meta']['count'] > 0:
                 source = data['results'][0]
-                # Extract fields
                 title = source.get('display_name', NOT_FOUND)
                 if not is_issn and not title.upper() == id.upper():
                     return None
@@ -118,11 +121,20 @@ def get_journal_metadata(id, is_issn=True):
                     topic.get('display_name', 'Unknown')
                     for topic in source.get('topics', [])
                 ]
-                # v2
                 source_id = source.get('id', NOT_FOUND)
                 authors_who_pulished_in_this_journal_info = NOT_FOUND
+                retracted_papers_count = 0
+                retraction_rate = 0.0
                 if source_id != NOT_FOUND:
                     authors_who_pulished_in_this_journal_info = get_journal_authors(source_id)
+                    # Get retraction stats for this journal
+                    works_url = f"https://api.openalex.org/works?filter=primary_location.source.id:{source_id}&per-page=200"
+                    works_resp = requests.get(works_url)
+                    if works_resp.status_code == 200:
+                        works = works_resp.json().get('results', [])
+                        total_works = len(works)
+                        retracted_papers_count = sum(1 for w in works if w.get('is_retracted', False))
+                        retraction_rate = (retracted_papers_count / total_works) if total_works > 0 else 0.0
                 is_indexed_in_scopus = source.get('is_indexed_in_scopus', False)
                 summary_stats = source.get('summary_stats', {})
                 h_index = summary_stats.get('h_index', NOT_FOUND)
@@ -130,7 +142,6 @@ def get_journal_metadata(id, is_issn=True):
                 two_yr_mean_citedness = summary_stats.get('2yr_mean_citedness', NOT_FOUND)
                 host_organization_name = source.get('host_organization_name', NOT_FOUND)
                 apc_prices = source.get('apc_prices', NOT_FOUND)
-
 
                 return {
                     "title": title,
@@ -148,7 +159,9 @@ def get_journal_metadata(id, is_issn=True):
                     "i10_index": i10_index,
                     "two_yr_mean_citedness": two_yr_mean_citedness,
                     "host_organization_name": host_organization_name,
-                    "apc_prices": apc_prices
+                    "apc_prices": apc_prices,
+                    "retracted_papers_count": retracted_papers_count,
+                    "retraction_rate": retraction_rate
                 }
         return None
     except Exception as e:
@@ -244,6 +257,18 @@ def get_paper_metadata_v2(paper_input, input_type):
             concepts = paper.get('concepts', NOT_FOUND)
             language = paper.get('language', NOT_FOUND)
             doi = paper.get('doi', NOT_FOUND)
+            is_retracted = paper.get('is_retracted', False)
+
+            # Get journal/source id for further metadata
+            journal_source_id = location_data.get('source', {}).get('id', None)
+            journal_issn = location_data.get('source', {}).get('issn_l', None)
+            journal_metadata = None
+            if journal_source_id:
+                # Prefer ISSN if available for exact match
+                if journal_issn:
+                    journal_metadata = get_journal_metadata(journal_issn, is_issn=True)
+                else:
+                    journal_metadata = get_journal_metadata(journal_source_id, is_issn=False)
 
             return {
                 'title': title,
@@ -260,7 +285,9 @@ def get_paper_metadata_v2(paper_input, input_type):
                 'language': language,
                 'doi': doi,
                 'locations_count': locations_count,
-                'locations': locations
+                'locations': locations,
+                'is_retracted': is_retracted,
+                'journal_metadata': journal_metadata
             }
         return NOT_FOUND
     except Exception as e:
@@ -268,260 +295,226 @@ def get_paper_metadata_v2(paper_input, input_type):
         traceback.print_exc()
         return ERROR_STATE
 
-def get_journal_confidence(metadata):
-    authors_info = metadata.get('authors_who_pulished_in_this_journal_info', [])
-    total_authors = len(authors_info)
-    orcid_count = sum(1 for a in authors_info if a.get('orcid') not in [None, NOT_FOUND, ""])
-    reputable_affiliations = [
-        "Harvard", "MIT", "Stanford", "Oxford", "Cambridge", "Yale", "Caltech", "Princeton", "Columbia", "Berkeley"
-    ]
-    reputable_affil_count = sum(
-        1 for a in authors_info if any(
-            uni.lower() in (a.get('affiliation') or '').lower() for uni in reputable_affiliations
-        )
-    )
-    orcid_ratio = f"{orcid_count}/{total_authors}" if total_authors else "0/0"
-    reputable_affil_ratio = f"{reputable_affil_count}/{total_authors}" if total_authors else "0/0"
+def paper_credibility_prompt(metadata):
+    """
+    Compose a prompt for an LLM to assess scientific paper credibility using all available metadata.
+    """
+    # Prepare author and affiliation summaries
+    author_metadata = metadata.get('author_metadata', [])
+    author_count = len(author_metadata)
+    author_names = [a.get('name', 'Unknown') for a in author_metadata]
+    orcid_count = sum(1 for a in author_metadata if a.get('has_orcid'))
+    author_affiliations = [a.get('affiliation', 'Unknown') for a in author_metadata]
+    retraction_rates = [a.get('retraction_rate', None) for a in author_metadata if a.get('retraction_rate') is not None]
+
+    # Journal metadata
+    journal = metadata.get('journal_metadata', {}) or {}
+    publisher = journal.get('publisher', 'Unknown')
+    is_in_doaj = journal.get('is_in_doaj', False)
+    is_indexed_in_scopus = journal.get('is_indexed_in_scopus', False)
+    h_index = journal.get('h_index', 'Unknown')
+    retraction_rate = journal.get('retraction_rate', 0.0)
+    retracted_papers_count = journal.get('retracted_papers_count', 0)
+    journal_title = journal.get('title', 'Unknown')
+
+    # Paper-level
+    cited_by_count = metadata.get('cited_by_count', 0)
+    publication_year = metadata.get('publication_year', 'Unknown')
+    open_access = metadata.get('open_access', False)
+    doi = metadata.get('doi', 'Unknown')
+    is_retracted = metadata.get('is_retracted', False)
+    concepts = metadata.get('concepts', [])
+    top_concepts = ", ".join([c.get('display_name', '') for c in concepts if c.get('score', 0) > 0.3]) if concepts else "Unknown"
+    from datetime import datetime
+    current_year = datetime.now().year
 
     prompt = f"""
-You are an expert in academic publishing. Evaluate the legitimacy of the following journal and provide a confidence score (0-100), where a higher score indicates greater legitimacy.
+    The current year is {current_year}.
+You are an expert in academic publishing and research integrity. Given the following metadata, assess the credibility of this scientific paper on a scale from 0 (not credible) to 100 (highly credible). 
+Consider all signals: author ORCID and affiliations, publisher reputation, journal indexing (DOAJ, Scopus), journal h-index, retraction history, citation count, DOI, open access status, and concept specificity.
 
-Check if the publisher name '{metadata['publisher']}' is reputable. This carries biggest deciding factor.
+**Metadata:**
+- Paper Title: {metadata.get('title', 'Unknown')}
+- Publication Year: {publication_year}
+- Cited By Count: {cited_by_count}
+- Is Retracted: {is_retracted}
+- DOI: {doi}
+- Open Access: {open_access}
+- Authors: {', '.join(author_names)}
+- Author ORCID Count: {orcid_count}/{author_count}
+- Author Affiliations: {', '.join(author_affiliations)}
+- Author Retraction Rates: {', '.join(str(r) for r in retraction_rates) if retraction_rates else 'None'}
+- Journal Title: {journal_title}
+- Publisher: {publisher}
+- In DOAJ: {is_in_doaj}
+- Indexed in Scopus: {is_indexed_in_scopus}
+- Journal h-index: {h_index}
+- Journal Retraction Rate: {retraction_rate:.2%}
+- Journal Retracted Papers Count: {retracted_papers_count}
+- Top Concepts: {top_concepts}
 
-**Use the following metadata to make your decision:**
-- In DOAJ: {metadata['is_in_doaj']}
-- Indexed in Scopus: {metadata['is_indexed_in_scopus']}
-- Host Organization Name: {metadata['host_organization_name']}
-- H-Index: {metadata['h_index']}
-- 2-Year Mean Citedness: {metadata['two_yr_mean_citedness']}
-- I10 Index: {metadata['i10_index']}
-- Cited By Count: {metadata['cited_by_count']}
-- Total Works: {metadata['works_count']}
-- Is Open Access: {metadata['is_open_access']}
-- Homepage URL: {metadata['homepage_url']}
-- APC Prices: {metadata['apc_prices']}
-- Title: {metadata['title']}
-- Publisher: {metadata['publisher']}
-- Country Code: {metadata['country_code']}
-- Fields of Research: {', '.join(metadata['fields_of_research'])}
-- Authors with ORCID: {orcid_ratio}
-- Authors with reputable affiliations: {reputable_affil_ratio}
+**Instructions:**
+- Consider all metadata and use your expertise to decide if the publisher is trusted, if author affiliations are reputable, and if the journal is credible.
+- If the paper is retracted, assign a very low score.
+- If the journal is open access but not in DOAJ, treat as a red flag.
+- If the publisher is known to be reputable, this is a strong positive.
+- If authors have ORCID and reputable affiliations, this is a positive sign.
+- If the journal has a high h-index and is indexed in Scopus, this is a strong positive.
+- If the journal or authors have a high retraction rate, this is a strong negative.
+- If the paper is old and has no citations, this is a negative.
+- If the DOI is missing or invalid, this is a strong negative.
+- If the paper's concepts are broad or unrelated, this is a negative.
+- Weigh all factors and provide a single confidence score (0-100).
 
-**Respond with only a single integer between 0 and 100, with no additional text or explanation.**
+**Output:**
+1. Confidence Score (0-100): [your score]
+2. Rationale: String explaining the reason in less than 250 words strictly. (consider that I'm a human reader and I need to understand your reasoning. As a web developer, This string will directly dumped on the UI.)
+
+Respond in this format:
+Confidence Score: [score]
+Rationale (HTML): [A short, well-formed HTML block. Use <ul> and <li> for lists, and <p> for paragraphs. Do not mix plain text and HTML tags outside of a block. All content should be inside <p>, <ul>, <li>, or <b> tags as appropriate. The reasoning should be a very convincing, max 300 words. 
+If possible, include specific proofs or evidence (such as direct metadata values, explicit journal or publisher names, or citation counts) that support your score. 
+If you can, add external links to authoritative sources (e.g., DOAJ, publisher homepage, or retraction notices) as HTML <a> tags to increase credibility. 
+This string will be shown directly in a web UI.]
 """
-    try:
-        response = anthropic.messages.create(
-            model=ANTHROPIC_MODEL,
-            max_tokens=10,
-            messages=[
-                {"role": "user", "content": prompt}
-            ]
-        )
-        text = response.content[0].text.strip()
-        match = re.search(r'\d+', text)
-        if match:
-            raw_score = int(match.group())
-            normalized_score = int(100 / (1 + np.exp(-0.1 * (raw_score - 50))))
-            return normalized_score
-    except Exception as e:
-        print(f"Failed to get journal confidence: {e}")
-        return ERROR_STATE
+    return prompt
 
-def get_paper_confidence(metadata):
+def get_paper_credibility(metadata):
     """
     Given paper metadata, generate a confidence score (0-100) for legitimacy.
     Uses: DOAJ status, publisher, author ORCID, author affiliations, open access, concepts, citation count, etc.
     """
-    # Prepare author-level summaries
-    author_orcid_count = sum(1 for a in metadata.get('author_metadata', []) if a.get('has_orcid'))
-    author_affiliations = [a.get('affiliation') for a in metadata.get('author_metadata', [])]
-    has_affiliation = any(aff and aff != NOT_FOUND for aff in author_affiliations)
-    author_count = metadata.get('author_count', 0)
-    orcid_presence = "Yes" if author_orcid_count > 0 else "No"
-
-    # Prepare concept summary
-    concepts = metadata.get('concepts', [])
-    if isinstance(concepts, list) and concepts:
-        top_concepts = ", ".join([c.get('display_name', '') for c in concepts if c.get('score', 0) > 0.3])
-    else:
-        top_concepts = "Unknown"
-
-    # Compose prompt for LLM
-    prompt = (
-        f"You are an expert in academic publishing. Provide a confidence score (0-100) indicating the likelihood that the paper is legitimate (higher score = more legitimate). "
-        f"Assign weights: DOAJ indexing (40%, journals listed in DOAJ are highly credible), ORCID presence among authors (20%), publisher reputation (15%, high for American Society for Microbiology, Nature, Elsevier, Springer, Wiley), "
-        f"external recognition (10%, citations/co-authorship in reputable venues as proxy for media coverage), author affiliations (5%), concept alignment (5%), open access status (5%). "
-        f"Recognize predatory papers (e.g., ISSN 2313-1799) by non-DOAJ journals, no ORCID, no reputable affiliations, or misaligned concepts. "
-        f"A paper is legitimate if published by reputable publishers, authors have ORCID, or the journal is in DOAJ. "
-        f"Ensure top concepts align with paper title: {metadata.get('title', 'Unknown')}. "
-        f"Metadata: Title: {metadata.get('title', 'Unknown')}, "
-        f"Publication Year: {metadata.get('publication_year', 'Unknown')}, "
-        f"Cited By Count: {metadata.get('cited_by_count', 'Unknown')}, "
-        f"Years Since Publication: {metadata.get('years_since_publication', 'Unknown')}, "
-        f"Author Count: {author_count}, "
-        f"In DOAJ: {metadata.get('is_in_doaj', 'Unknown')}, "
-        f"Publisher: {metadata.get('publisher', 'Unknown')}, "
-        f"Open Access: {metadata.get('open_access', 'Unknown')}, "
-        f"ORCID Presence: {orcid_presence}, "
-        f"Author Affiliations Present: {'Yes' if has_affiliation else 'No'}, "
-        f"Top Concepts: {top_concepts}, "
-        f"Language: {metadata.get('language', 'Unknown')}, "
-        f"DOI: {metadata.get('doi', 'Unknown')}. "
-        f"**Respond with only a single integer between 0 and 100, with no additional text or explanation.**"
-    )
+    prompt = paper_credibility_prompt(metadata)
     try:
         response = anthropic.messages.create(
             model=ANTHROPIC_MODEL,
-            max_tokens=10,
+            max_tokens=500,
             messages=[
                 {"role": "user", "content": prompt}
             ]
         )
         text = response.content[0].text.strip()
-        match = re.search(r'\d+', text)
-        if match:
-            raw_score = int(match.group())
-            normalized_score = int(100 / (1 + np.exp(-0.1 * (raw_score - 50))))
-            return normalized_score
-        raise ValueError("No integer found in Claude response")
+        score, rationale = parse_llm_paper_confidence_output(text)
+        return score, rationale
+
     except Exception as e:
-        return ERROR_STATE
+        print(f"Failed to get paper credibility: {e}")
+        return ERROR_STATE, ERROR_STATE
+
+def parse_llm_paper_confidence_output(llm_output):
+    """
+    Parses the LLM output for confidence score and rationale.
+    Returns (score: int, rationale: list of str)
+    """
+    import re
+
+    # Extract score
+    score_match = re.search(r'Confidence Score:\s*(\d+)', llm_output)
+    score = int(score_match.group(1)) if score_match else None
+
+    # Extract rationale as HTML string
+    rationale_match = re.search(r'Rationale\s*\(HTML\):\s*(.*)', llm_output, re.DOTALL)
+    rationale_html = rationale_match.group(1).strip() if rationale_match else ""
+
+    return score, rationale_html
+
+def journal_credibility_prompt(metadata):
+    """
+    Compose a prompt for an LLM to assess journal credibility using all available OpenAlex metadata.
+    """
+    # Prepare author and affiliation summaries
+    authors_info = metadata.get('authors_who_pulished_in_this_journal_info', [])
     
-def view_paper_metadata(metadata, st):
-    """Display paper metadata in a Streamlit expander."""
-    with st.expander("View Paper Metadata"):
-        st.write(f"**Title**: {str(metadata.get('title', 'Unknown'))}")
-        # Journal name from first location's source.display_name if available
-        journal_name = "Unknown"
-        locations = metadata.get('locations', [])
-        if locations and isinstance(locations, list):
-            source = locations[0].get('source', {}) if locations[0].get('source') else {}
-            journal_name = source.get('display_name', 'Unknown')
-        st.write(f"**Journal Name**: {journal_name}")
-        st.write(f"**Publication Year**: {str(metadata.get('publication_year', 'N/A'))}")
-        st.write(f"**Cited By Count**: {str(metadata.get('cited_by_count', 'N/A'))}")
-        st.write(f"**Years Since Publication**: {str(metadata.get('years_since_publication', 'N/A'))}")
-        st.write(f"**Total Paper Citation Count**: {str(metadata.get('total_paper_citation_count', 'N/A'))}")
-        st.write(f"**Author Count**: {str(metadata.get('author_count', 'N/A'))}")
-        st.write(f"**In DOAJ**: {'Yes' if metadata.get('is_in_doaj', False) else 'No'}")
-        st.write(f"**Publisher**: {str(metadata.get('publisher', 'Unknown'))}")
-        st.write(f"**Open Access**: {'Yes' if metadata.get('open_access', False) else 'No'}")
-        st.write(f"**Language**: {str(metadata.get('language', 'Unknown'))}")
-        st.write(f"**DOI**: {str(metadata.get('doi', 'Unknown'))}")
-        st.write(f"**Total Locations**: {str(metadata.get('locations_count', 'N/A'))}")
-
-        # Show concepts if available
-        concepts = metadata.get('concepts', [])
-        if isinstance(concepts, list) and concepts:
-            st.write("**Key Concepts:**")
-            for c in concepts:
-                st.write(f"- {c.get('display_name', 'Unknown')} (score: {round(c.get('score', 0), 2)})")
-
-        # Show author details
-        author_metadata = metadata.get('author_metadata', [])
-        if isinstance(author_metadata, list) and author_metadata:
-            st.write("**Authors:**")
-            for a in author_metadata:
-                st.write(
-                    f"- {a.get('name', 'Unknown')} | ORCID: {'Yes' if a.get('has_orcid', False) else 'No'} | Affiliation: {a.get('affiliation', 'Unknown')}"
-                )
-
-
-def generate_paper_reason(confidence, metadata):
-    """Generate a reason for the paper's legitimacy based on confidence and metadata."""
-    title = metadata.get('title', 'an unknown title')
-    publication_year = metadata.get('publication_year', 'Unknown')
-    cited_by_count = metadata.get('cited_by_count', 0)
-    years_since_publication = metadata.get('years_since_publication', 'Unknown')
-    total_paper_citation_count = metadata.get('total_paper_citation_count', 0)
-    author_metadata = metadata.get('author_metadata', [])
-    author_count = metadata.get('author_count', 0)
+    # Journal metadata fields
     is_in_doaj = metadata.get('is_in_doaj', False)
-    publisher = metadata.get('publisher') or 'an unknown publisher'
-    open_access = metadata.get('open_access', 'Unknown')
-    concepts = metadata.get('concepts', [])
-    language = metadata.get('language', 'Unknown')
-    doi = metadata.get('doi', 'Unknown')
-    locations_count = metadata.get('locations_count', 0)
-    locations = metadata.get('locations', [])
+    is_core = metadata.get('is_core', False)
+    is_open_access = metadata.get('is_open_access', False)
+    publisher = metadata.get('publisher', 'Unknown')
+    host_organization_name = metadata.get('host_organization_name', 'Unknown')
+    country_code = metadata.get('country_code', 'Unknown')
+    apc_prices = metadata.get('apc_prices', 'Unknown')
+    apc_usd = metadata.get('apc_usd', 'Unknown')
+    works_count = metadata.get('works_count', 0)
+    cited_by_count = metadata.get('cited_by_count', 0)
+    h_index = metadata.get('h_index', 'Unknown')
+    i10_index = metadata.get('i10_index', 'Unknown')
+    two_yr_mean_citedness = metadata.get('two_yr_mean_citedness', 'Unknown')
+    retracted_papers_count = metadata.get('retracted_papers_count', 0)
+    retraction_rate = metadata.get('retraction_rate', 0.0)
+    homepage_url = metadata.get('homepage_url', 'N/A')
+    title = metadata.get('title', 'Unknown')
+    fields_of_research = ', '.join(metadata.get('fields_of_research', []))
 
-    # Author details
-    orcid_count = sum(1 for a in author_metadata if a.get('has_orcid'))
-    has_affiliation = any(a.get('affiliation') and a.get('affiliation') != 'NOT_FOUND' for a in author_metadata)
-    author_names = [a.get('name', 'Unknown') for a in author_metadata]
-    author_affiliations = [
-        a.get('affiliation', 'Unknown') if a.get('affiliation') else "Unknown"
-        for a in author_metadata
-    ]
+    from datetime import datetime
+    current_year = datetime.now().year
 
-    # Concepts summary
-    if isinstance(concepts, list) and concepts:
-        top_concepts = ", ".join([c.get('display_name', '') for c in concepts if c.get('score', 0) > 0.3])
-    else:
-        top_concepts = "Unknown"
+    prompt = f"""
+The current year is {current_year}.
+You are an expert in academic publishing and research integrity. Given the following metadata, assess the credibility of this journal on a scale from 0 (not credible/predatory) to 100 (highly credible). 
+Consider all signals: DOAJ and core index status, publisher and host organization reputation, country code, APC transparency, citation and impact metrics, retraction history, author ORCID and affiliations, and scope.
 
-    # Location summary
-    location_summary = ""
-    if locations_count > 0 and locations:
-        source = locations[0].get('source', {}) if locations[0].get('source') else {}
-        journal_name = source.get('display_name', 'Unknown')
-        location_summary = f"Published in '{journal_name}'."
-    else:
-        location_summary = "Journal or publication venue is not well-documented."
+**Journal Metadata:**
+- Title: {title}
+- Publisher: {publisher}
+- Host Organization: {host_organization_name}
+- Homepage URL: {homepage_url}
+- In DOAJ: {is_in_doaj}
+- In Core Index: {is_core}
+- Is Open Access: {is_open_access}
+- Country Code: {country_code}
+- APC Prices: {apc_prices}
+- APC USD: {apc_usd}
+- Total Works: {works_count}
+- Cited By Count: {cited_by_count}
+- H-Index: {h_index}
+- I10 Index: {i10_index}
+- 2-Year Mean Citedness: {two_yr_mean_citedness}
+- Retraction Rate: {retraction_rate:.2%}
+- Retracted Papers Count: {retracted_papers_count}
+- Fields of Research: {fields_of_research}
+- Author Information: {authors_info}
 
-    # Compose reason
-    citation_message = (
-        f"The paper has been cited {cited_by_count} times"
-        if cited_by_count and cited_by_count > 0
-        else "Citation data is unavailable or not reported"
-    )
-    author_message = (
-        f"Authored by {author_count} researcher(s): {', '.join(author_names)}. "
-        f"{orcid_count} {'has' if orcid_count == 1 else 'have'} ORCID(s)."
-    )
-    affiliation_message = (
-        f"Affiliations include: {', '.join(author_affiliations)}."
-        if has_affiliation else "Author affiliations are not well-documented."
-    )
-    doaj_message = (
-        f"The journal is {'listed' if is_in_doaj else 'not listed'} in DOAJ, "
-        f"{'which adds to its credibility.' if is_in_doaj else 'which raises some questions about its standards.'}"
-    )
-    oa_message = (
-        f"The paper is {'open access' if open_access else 'not open access'}."
-        if open_access != 'Unknown' else "Open access status is unknown."
-    )
-    concepts_message = (
-        f"Key concepts: {top_concepts}."
-        if top_concepts != "Unknown" else "The paper's key concepts are not well-defined."
-    )
-    language_message = f"Language: {language}."
-    doi_message = f"DOI: {doi}."
+**Instructions:**
+- If the journal is open access but not in DOAJ, this is a major red flag.
+- If the journal is not in any core scholarly index, this is a moderate risk.
+- If the publisher or host organization is on a known blacklist, this is a critical risk.
+- If the publisher is unknown or not in a whitelist, this is a minor risk.
+- If APC info is missing for an OA journal, this is a transparency issue.
+- If the journal has high output but low citations or h-index, this is a strong risk.
+- If the journal has a high retraction rate or count, this is a strong risk.
+- If the journal's scope is unusually broad, this is a minor risk.
+- If the journal is in DOAJ or a core index, or published by a reputable publisher, this is a strong positive.
+- Weigh all factors and provide a single confidence score (0-100).
 
-    # Confidence-based summary
-    if confidence >= 60:
-        confidence_message = f"We’re {confidence}% sure that the paper '{title}' is trustworthy because it has strong signs of quality."
-    elif confidence > 30:
-        confidence_message = f"We’re only {confidence}% sure about the paper '{title}' because it shows some mixed signs."
-    else:
-        confidence_message = f"We’re only {confidence}% confident in the paper '{title}' because it has serious red flags."
+**Output:**
+1. Confidence Score (0-100): [your score]
+2. Rationale: String explaining the reason in less than 250 words strictly. (This string will be shown directly to a human user.)
 
-    return (
-        f"{confidence_message} {location_summary} {citation_message}. "
-        f"{author_message} {affiliation_message} {doaj_message} {oa_message} "
-        f"{concepts_message} {language_message} {doi_message}"
-    )
+Respond in this format:
+Confidence Score: [score]
+Rationale (HTML): [A short, well-formed HTML block. Use <ul> and <li> for lists, and <p> for paragraphs. Do not mix plain text and HTML tags outside of a block. All content should be inside <p>, <ul>, <li>, or <b> tags as appropriate. The reasoning should be a very convincing, max 300 words. 
+If possible, include specific proofs or evidence (such as direct metadata values, explicit journal or publisher names, or citation counts) that support your score. 
+If you can, add external links to authoritative sources (e.g., DOAJ, publisher homepage, or retraction notices) as HTML <a> tags to increase credibility. 
+This string will be shown directly in a web UI.]
+"""
+    return prompt
 
-
-def view_journal_metadata(metadata, st):
-    st.subheader("Journal Metadata")
-    with st.expander("View Journal Metadata"):
-        st.write(f"**Title**: {str(metadata.get('title', 'Unknown'))}")
-        st.write(f"**Publisher**: {str(metadata.get('publisher', 'Unknown'))}")
-        st.write(f"**Homepage URL**: {str(metadata.get('homepage_url', 'N/A'))}")
-        st.write(f"**In DOAJ**: {'Yes' if metadata.get('is_in_doaj', False) else 'No'}")
-        st.write(f"**Is Open Access**: {'Yes' if metadata.get('is_open_access', False) else 'No'}")
-        st.write(f"**Country Code**: {str(metadata.get('country_code', 'Unknown'))}")
-        st.write(f"**Total Works**: {str(metadata.get('works_count', 'N/A'))}")
-        st.write(f"**Cited By Count**: {str(metadata.get('cited_by_count', 'N/A'))}")
-        st.write(f"**Fields of Research**: {', '.join(metadata.get('fields_of_research', ['Unknown']))}")
+def get_journal_credibility(metadata):
+    """
+    Given journal metadata, generate a confidence score (0-100) for legitimacy using Anthropic LLM.
+    """
+    prompt = journal_credibility_prompt(metadata)
+    try:
+        response = anthropic.messages.create(
+            model=ANTHROPIC_MODEL,
+            max_tokens=500,
+            messages=[
+                {"role": "user", "content": prompt}
+            ]
+        )
+        text = response.content[0].text.strip()
+        score, rationale = parse_llm_paper_confidence_output(text)
+        return score, rationale
+    except Exception as e:
+        print(f"Failed to get journal credibility: {e}")
+        return ERROR_STATE, ERROR_STATE
