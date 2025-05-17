@@ -119,14 +119,14 @@ def main():
                         display_confidence(confidence, is_journal=False)
                         display_investigation_summary(reason)
         
-                    except Exception:
-                        message_something_went_wrong()
+                    except Exception as e:
+                        message_something_went_wrong(e)
                         return
                 
                 
 
-    except Exception:
-        message_something_went_wrong()
+    except Exception as e:
+        message_something_went_wrong(e)
     
     st.markdown(
         """
@@ -151,9 +151,10 @@ def display_investigation_summary(reason):
     st.subheader("Investigation Summary")
     st.markdown(reason, unsafe_allow_html=True)
 
-def message_something_went_wrong():
+def message_something_went_wrong(exception=None):
     """Display a message indicating something went wrong."""
     st.error("Something went wrong. Please contact the administrator at abakre5@gmail.com")
+    st.error(exception)
 
 if __name__ == "__main__":
     main()
