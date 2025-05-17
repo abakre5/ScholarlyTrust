@@ -97,7 +97,6 @@ def get_journal_metadata(id, is_issn=True):
     hijacked_journal_names_file = "docs/hijacked_journal_title.txt"
     try:
         if is_issn:
-            st.error("is_issn: " + str(is_issn))
             with open(hijacked_issns_file, 'r') as file:
                 hijacked_issns = {line.strip() for line in file if line.strip()}
             if id in hijacked_issns:
@@ -108,7 +107,6 @@ def get_journal_metadata(id, is_issn=True):
             if id.lower() in hijacked_journals:
                 return HIJACKED_ISSN
     except Exception as e:
-        st.error("Error reading hijacked ISSNs or journal names file: " + str(e))
         print(f"Error reading hijacked ISSNs file: {e}")
         # return ERROR_STATE
 
@@ -117,16 +115,11 @@ def get_journal_metadata(id, is_issn=True):
     else:
         url = f'https://api.openalex.org/sources?search="{id}"'
     try:
-        st.error("Fetching journal metadata...")
         response = requests.get(url)
         if response.status_code == 200:
-            st.error("response.status_code == 200")
             data = response.json()
-            st.error("data: " + str(data))
             if data['meta']['count'] > 0:
-                st.error("data['meta']['count'] > 0")
                 source = data['results'][0]
-                st.error("data: " + str(source))
                 title = source.get('display_name', NOT_FOUND)
                 if not is_issn and not title.upper() == id.upper():
                     return None
@@ -186,10 +179,6 @@ def get_journal_metadata(id, is_issn=True):
         return None
     except Exception as e:
         print(f"Failed to fetch journal metadata: {e}")
-        st.error("Failed to fetch journal metadata: " + str(e))
-        st.error("Please stack trace the error.") 
-        st.error(traceback.print_exc())
-        st.error(traceback.format_exc())
         return ERROR_STATE
 
 def get_author_metadata_for_paper(paper_data):

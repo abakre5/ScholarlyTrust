@@ -55,8 +55,6 @@ def main():
                 with st.spinner("Analyzing your request..."):
                     try:
                         journal_input = journal_input.strip()
-                        st.error("This is a test error journal_input: " + journal_input)
-                        st.error("This is a test error input_type: " + input_type)
                         if input_type == "ISSN":
                             metadata = get_journal_metadata(journal_input, True)
                         else:  # Input type is "Name"
@@ -64,7 +62,6 @@ def main():
                         
                         if metadata is ERROR_STATE:
                             message_something_went_wrong()
-                            st.error("An error occurred while retrieving journal data. Please try again or contact support.")
                             return
                         if metadata is HIJACKED_ISSN:
                             st.error(f"This journal is definitely predatory as it is marked as a hijacked journal.")
@@ -84,7 +81,7 @@ def main():
                         display_confidence(confidence, is_journal=True)
                         display_investigation_summary(reason)
                     except Exception:
-                        st.error("An unexpected error occurred while retrieving journal data. Please try again or contact support.")
+                        message_something_went_wrong()
                         return
                 
         else:
@@ -105,7 +102,6 @@ def main():
                         paper_input = paper_input.strip()
                         metadata = get_paper_metadata_v2(paper_input, input_type.lower())
                         if metadata is ERROR_STATE:
-                            st.error("An error occurred while retrieving paper data. Please try again or contact support.")
                             message_something_went_wrong()
                             return
                         if not metadata or not isinstance(metadata, dict):
@@ -118,14 +114,12 @@ def main():
                         
                         confidence, reason = get_paper_credibility(metadata)
                         if confidence is ERROR_STATE or reason is ERROR_STATE:
-                            st.error("An error occurred while retrieving paper credibility. Please try again or contact support.")
                             message_something_went_wrong()
                             return
                         display_confidence(confidence, is_journal=False)
                         display_investigation_summary(reason)
         
                     except Exception:
-                        st.error("An unexpected error occurred INNER")
                         message_something_went_wrong()
                         return
                 
