@@ -1,18 +1,16 @@
 # ScholarlyTrust: Research Integrity Checker
 
-**ScholarlyTrust** is a web-based tool designed to help researchers, academics, and institutions evaluate the legitimacy of journals and research papers. The tool uses metadata and confidence scores to provide insights into the credibility of journals and papers, helping users avoid predatory publishers and unreliable sources.
+**ScholarlyTrust** is a web-based tool designed to help researchers, academics, and institutions evaluate the legitimacy of journals and research papers. The tool uses trusted metadata and confidence scores to provide insights into the credibility of journals and papers, helping users avoid predatory publishers and unreliable sources.
 
 ---
 
 ## Features
 
-- **Journal Validation**: Check the legitimacy of journals using their ISSN.
+- **Journal Validation**: Check the legitimacy of journals using their ISSN or name.
 - **Research Paper Validation**: Evaluate research papers using their DOI or title.
 - **Metadata Insights**: View detailed metadata for journals and papers, including publisher, citation counts, DOAJ status, and more.
 - **Confidence Scoring**: Get a confidence score (0-100%) indicating the likelihood of legitimacy.
 - **User-Friendly Interface**: Built with Streamlit for an intuitive and interactive experience.
-
----
 
 ---
 
@@ -63,6 +61,7 @@ flowchart LR
     F --> H[Score<br/>0-100]
     G --> H
     H --> B
+```
 
 ---
 
