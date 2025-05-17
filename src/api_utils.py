@@ -488,7 +488,7 @@ Consider all signals: DOAJ and core index status, publisher and host organizatio
 
 **Instructions:**
 - If the journal is open access but not in DOAJ, this is a major red flag.
-- If the journal is not in any core scholarly index, this is a moderate risk.
+- If the journal is not in any core scholarly index (such as Scopus or DOAJ), or has been discontinued or delisted from such indexes, this is a strong negative indicator. If possible, mention the year or period when indexing stopped.
 - If the publisher or host organization is on a known blacklist, this is a critical risk.
 - If the publisher is unknown or not in a whitelist, this is a minor risk.
 - If APC info is missing for an OA journal, this is a transparency issue.
@@ -496,7 +496,17 @@ Consider all signals: DOAJ and core index status, publisher and host organizatio
 - If the journal has a high retraction rate or count, this is a strong risk.
 - If the journal's scope is unusually broad, this is a minor risk.
 - If the journal is in DOAJ or a core index, or published by a reputable publisher, this is a strong positive.
+- **If the journal was previously indexed in a major database (like Scopus) but is now discontinued or delisted, treat this as a major red flag and clearly state this in your rationale.**
+- If the homepage URL is missing, suspicious, or not a professional domain, treat this as a negative indicator and mention it in your rationale.
+- If the publisher or host organization lacks transparency (no clear contact info or physical address), treat this as a moderate risk.
+- If APCs are unusually low or high compared to reputable journals in the same field, mention this as a potential red flag.
+- If the majority of authors lack ORCID IDs or reputable institutional affiliations, treat this as a moderate risk.
+- If the editorial board is not publicly listed or contains unverifiable members, treat this as a negative indicator.
+- If the journal's metrics (h-index, i10-index, citedness) are inconsistent with its claimed reputation or age, mention this discrepancy.
+- If APC information is not easily accessible or is hidden, treat this as a transparency issue.
+- If the ISSN is not registered or is associated with multiple unrelated titles, treat this as a major red flag.
 - Weigh all factors and provide a single confidence score (0-100).
+
 
 **Output:**
 1. Confidence Score (0-100): [your score]
