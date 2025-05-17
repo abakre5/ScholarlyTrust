@@ -1,3 +1,15 @@
+"""
+main.py
+
+Author: Abhishek Bakare (https://www.linkedin.com/in/abhishekbakare/)
+Contact: abakre5@gmail.com
+
+This is the main entry point for the ScholarlyTrust Streamlit app.
+It handles user interaction, input validation, and orchestrates the workflow for:
+- Checking the credibility of journals and research papers using their ISSN, name, DOI, or title.
+- Displaying confidence scores and detailed rationales based on trusted scholarly metadata and rule-based assessment.
+- Presenting results in a user-friendly, interactive web interface.
+"""
 import json
 import os
 import streamlit as st
