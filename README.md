@@ -14,18 +14,55 @@
 
 ---
 
-## How It Works
+---
 
-1. **Journal Validation**:
-   - Enter the ISSN of the journal.
-   - The tool fetches metadata and evaluates the journal's credibility based on factors like publisher reputation, DOAJ indexing, and citation impact.
+## ✨ What Is ScholarlyTrust?
 
-2. **Research Paper Validation**:
-   - Enter the DOI or title of the paper.
-   - The tool analyzes metadata such as publication year, author count, and citation data to assess the paper's legitimacy.
+ScholarlyTrust is a **free, open-source credibility engine** that scores journals and individual research papers on a 0-100 scale.  
+It combines:
 
-3. **Investigation Summary**:
-   - View a detailed summary of the analysis, including confidence scores and reasoning.
+1. **Trusted scholarly metadata** – pulled live from [OpenAlex](https://openalex.org) and (optionally) the Retraction Watch database.  
+2. **Rule-based heuristics** – proven red-flag checks (e.g., not indexed in DOAJ, suspicious APCs, hijacked ISSN).  
+3. **AI assistance** – a lightweight language-model layer (Anthropic Claude / GPT) that spots subtler issues (odd journal titles, boilerplate peer-review claims, etc.) and generates plain-language explanations.
+
+Think of it as **“Retraction Watch × DOAJ × ChatGPT”** in one package—so science journalists, librarians, and researchers can **instantly** gauge whether a source is likely legitimate, questionable, or predatory.
+
+---
+
+## 🔑 Key Features
+
+| Feature | Journals | Papers |
+|---------|----------|--------|
+| Index & whitelist checks (Scopus, DOAJ, CORE) | ✅ | ✅ *(via journal of record)* |
+| Hijacked‐journal detection | ✅ | — |
+| Retraction & expression-of-concern lookup | ✅ | ✅ |
+| Citation & impact outlier analysis | ✅ | ✅ |
+| APC transparency & fee anomaly check | ✅ | — |
+| AI title / website language scan | ✅ | — |
+| Author ORCID & affiliation sanity check | — | ✅ |
+| 0–100 confidence score + color badge | ✅ | ✅ |
+| Plain-language rationale (“Why this score?”) | ✅ | ✅ |
+
+---
+
+## 🏗️ Architecture (High Level)
+
+```mermaid
+flowchart LR
+    subgraph Frontend
+        A[User<br/>ISSN / DOI / Title] -->|Query| B(UI / CLI)
+    end
+    B --> C[ScholarlyTrust Core]
+
+    subgraph Core
+        C --> D(OpenAlex API)
+        C --> E(Retraction-Watch JSON)
+        C --> F(Rule Engine)
+        C --> G(AI/NLP Helpers)
+    end
+    F --> H[Score<br/>0-100]
+    G --> H
+    H --> B
 
 ---
 
