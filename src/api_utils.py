@@ -4,7 +4,7 @@ api_utils.py
 Author: Abhishek Bakare (https://www.linkedin.com/in/abhishekbakare/)
 Contact: abakre5@gmail.com
 
-This module provides utility functions for:
+This module provides utility functions for interacting with the OpenAlex API and the Anthropic API.
 - Fetching and processing metadata for journals and research papers from OpenAlex and related sources.
 - Detecting hijacked journals.
 - Constructing prompts for credibility assessment.

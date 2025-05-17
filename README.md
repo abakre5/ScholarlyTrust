@@ -21,7 +21,7 @@ It combines:
 
 1. **Trusted scholarly metadata** – pulled live from [OpenAlex](https://openalex.org) and (optionally) the Retraction Watch database.  
 2. **Rule-based heuristics** – proven red-flag checks (e.g., not indexed in DOAJ, suspicious APCs, hijacked ISSN).  
-3. **AI assistance** – a lightweight language-model layer (Anthropic Claude / GPT) that spots subtler issues (odd journal titles, boilerplate peer-review claims, etc.) and generates plain-language explanations.
+3. **LLM assistance** – a lightweight language-model layer (Anthropic Claude / GPT) that spots subtler issues (odd journal titles, boilerplate peer-review claims, etc.) and generates plain-language explanations.
 
 Think of it as **“Retraction Watch × DOAJ × ChatGPT”** in one package—so science journalists, librarians, and researchers can **instantly** gauge whether a source is likely legitimate, questionable, or predatory.
 
