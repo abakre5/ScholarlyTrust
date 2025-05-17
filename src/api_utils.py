@@ -115,11 +115,16 @@ def get_journal_metadata(id, is_issn=True):
     else:
         url = f'https://api.openalex.org/sources?search="{id}"'
     try:
+        st.error("Fetching journal metadata...")
         response = requests.get(url)
         if response.status_code == 200:
+            st.error("response.status_code == 200")
             data = response.json()
+            st.error("data: " + str(data))
             if data['meta']['count'] > 0:
+                st.error("data['meta']['count'] > 0")
                 source = data['results'][0]
+                st.error("data: " + str(source))
                 title = source.get('display_name', NOT_FOUND)
                 if not is_issn and not title.upper() == id.upper():
                     return None
