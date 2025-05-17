@@ -184,7 +184,10 @@ def get_journal_metadata(id, is_issn=True):
         return None
     except Exception as e:
         print(f"Failed to fetch journal metadata: {e}")
-        traceback.print_exc()
+        st.error("Failed to fetch journal metadata: " + str(e))
+        st.error("Please stack trace the error.") 
+        st.error(traceback.print_exc())
+        st.error(traceback.format_exc())
         return ERROR_STATE
 
 def get_author_metadata_for_paper(paper_data):
