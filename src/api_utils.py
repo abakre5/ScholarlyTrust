@@ -97,6 +97,7 @@ def get_journal_metadata(id, is_issn=True):
     hijacked_journal_names_file = "/workspaces/ScholarlyTrust/docs/hijacked_journal_title.txt"
     try:
         if is_issn:
+            st.error("is_issn: " + str(is_issn))
             with open(hijacked_issns_file, 'r') as file:
                 hijacked_issns = {line.strip() for line in file if line.strip()}
             if id in hijacked_issns:
@@ -107,6 +108,7 @@ def get_journal_metadata(id, is_issn=True):
             if id.lower() in hijacked_journals:
                 return HIJACKED_ISSN
     except Exception as e:
+        st.error("Error reading hijacked ISSNs or journal names file: " + str(e))
         print(f"Error reading hijacked ISSNs file: {e}")
         return ERROR_STATE
 
