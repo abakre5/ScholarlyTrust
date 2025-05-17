@@ -55,6 +55,8 @@ def main():
                 with st.spinner("Analyzing your request..."):
                     try:
                         journal_input = journal_input.strip()
+                        st.error("This is a test error journal_input: " + journal_input)
+                        st.error("This is a test error input_type: " + input_type)
                         if input_type == "ISSN":
                             metadata = get_journal_metadata(journal_input, True)
                         else:  # Input type is "Name"
