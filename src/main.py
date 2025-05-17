@@ -68,7 +68,7 @@ def main():
                             return
                         if not metadata or not isinstance(metadata, dict):
                             st.error(
-                                "We could not locate this paper in any of our trusted scholarly databases, and no reliable metadata is available. "
+                                "We could not locate this journal in any of our trusted scholarly databases like Openalex and Crossref, and no reliable metadata is available. "
     "If you are confident that your input is correct, this strongly suggests the work is not recognized by reputable academic sources. "
     "Otherwise, please carefully review your input for possible errors or typos."
                             )                       
@@ -106,7 +106,7 @@ def main():
                             return
                         if not metadata or not isinstance(metadata, dict):
                             st.error(
-                                "We could not locate this paper in any of our trusted scholarly databases, and no reliable metadata is available. "
+                                "We could not locate this paper in any of our trusted scholarly databases like Openalex and Crossref, and no reliable metadata is available. "
     "If you are confident that your input is correct, this strongly suggests the work is not recognized by reputable academic sources. "
     "Otherwise, please carefully review your input for possible errors or typos."
                             )
