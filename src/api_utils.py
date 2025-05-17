@@ -93,8 +93,8 @@ def get_journal_metadata(id, is_issn=True):
     """
     Fetches journal metadata from OpenAlex, including retraction statistics and author info.
     """
-    hijacked_issns_file = "/workspaces/ScholarlyTrust/docs/hijacked_issn.txt"
-    hijacked_journal_names_file = "/workspaces/ScholarlyTrust/docs/hijacked_journal_title.txt"
+    hijacked_issns_file = "docs/hijacked_issn.txt"
+    hijacked_journal_names_file = "docs/hijacked_journal_title.txt"
     try:
         if is_issn:
             st.error("is_issn: " + str(is_issn))
