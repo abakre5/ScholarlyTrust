@@ -233,17 +233,12 @@ def get_paper_metadata_v2(paper_input, input_type):
             # Only focus on locations if locations_count >= 1
             locations_count = paper.get('locations_count', 0)
             locations = paper.get('locations', [])
-            if locations_count == 0:
-                # No locations found
-                return NOT_FOUND
             location_data = None
-            for loc in locations:
-                if loc.get('source'):
-                    location_data = loc
-                    break
-            if location_data is None:
-                # No valid location with 'source' found
-                return NOT_FOUND
+            if locations_count != 0:
+                for loc in locations:
+                    if loc.get('source'):
+                        location_data = loc
+                        break
 
             # Extract relevant metadata from location_data
             publication_year = paper.get('publication_year', NOT_FOUND)
@@ -259,21 +254,28 @@ def get_paper_metadata_v2(paper_input, input_type):
             author_metadata = get_author_metadata_for_paper(paper)
 
             # Extract from location_data or mark as NOT_FOUND
-            is_in_doaj = location_data.get('source', {}).get('is_in_doaj', NOT_FOUND)
-            publisher = location_data.get('source', {}).get('display_name', NOT_FOUND)
+            is_in_doaj = NOT_FOUND
+            publisher = NOT_FOUND
+            open_access = NOT_FOUND
+            if location_data != None:
+                location_data.get('source', {}).get('is_in_doaj', NOT_FOUND)
+                publisher = location_data.get('source', {}).get('display_name', NOT_FOUND)
+                open_access = location_data.get('is_oa', NOT_FOUND)
 
             # Other relevant metadata
             title = paper.get('title', NOT_FOUND)
             author_count = len(author_metadata) if isinstance(author_metadata, list) else NOT_FOUND
-            open_access = location_data.get('is_oa', NOT_FOUND)
             concepts = paper.get('concepts', NOT_FOUND)
             language = paper.get('language', NOT_FOUND)
             doi = paper.get('doi', NOT_FOUND)
             is_retracted = paper.get('is_retracted', False)
 
             # Get journal/source id for further metadata
-            journal_source_id = location_data.get('source', {}).get('id', None)
-            journal_issn = location_data.get('source', {}).get('issn_l', None)
+            journal_source_id = NOT_FOUND
+            journal_issn = NOT_FOUND
+            if location_data != None:
+                journal_source_id = location_data.get('source', {}).get('id', None)
+                journal_issn = location_data.get('source', {}).get('issn_l', None)
             journal_metadata = None
             if journal_source_id:
                 # Prefer ISSN if available for exact match
