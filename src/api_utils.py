@@ -187,6 +187,8 @@ def get_author_metadata_for_paper(paper_data):
       - name (display_name)
       - has_orcid (True/False)
       - affiliation (display_name of the first institution)
+      - is_corresponding (True/False)
+      - author_position (first, second, etc.)
     """
     try:
         authors = paper_data.get('authorships', [])
@@ -203,10 +205,16 @@ def get_author_metadata_for_paper(paper_data):
                 affiliation = NOT_FOUND
             else:
                 affiliation = institutions[0].get('display_name', NOT_FOUND)
+            
+            is_corresponding = author.get('is_corresponding', False)
+            author_position = author.get('author_position', NOT_FOUND)
+
             author_info.append({
                 'name': name,
                 'has_orcid': has_orcid,
-                'affiliation': affiliation
+                'affiliation': affiliation,
+                'is_corresponding': is_corresponding,
+                'author_position': author_position
             })
         return author_info
     except Exception as e:
@@ -284,24 +292,40 @@ def get_paper_metadata_v2(paper_input, input_type):
                 else:
                     journal_metadata = get_journal_metadata(journal_source_id, is_issn=False)
 
+
+            grants = paper.get('grants', NOT_FOUND)  # List of grants associated with the paper
+            referenced_works_count = paper.get('referenced_works_count', NOT_FOUND)  # Number of works this paper references
+            related_works = paper.get('related_works', NOT_FOUND)  # List of related work IDs
+            sustainable_development_goals = paper.get('sustainable_development_goals', NOT_FOUND)  # SDGs associated with the paper
+            counts_by_year = paper.get('counts_by_year', NOT_FOUND)  # Citation and publication counts by year
+            publication_date = paper.get('publication_date', NOT_FOUND)  # Full publication date (YYYY-MM-DD)
+            created_date = paper.get('created_date', NOT_FOUND)  # Date the record was created in OpenAlex
+
             return {
-                'title': title,
-                'publication_year': publication_year,
-                'cited_by_count': cited_by_count,
-                'years_since_publication': years_since_publication,
-                'total_paper_citation_count': total_paper_citation_count,
-                'author_metadata': author_metadata,
-                'author_count': author_count,
-                'is_in_doaj': is_in_doaj,
-                'publisher': publisher,
-                'open_access': open_access,
-                'concepts': concepts,
-                'language': language,
-                'doi': doi,
-                'locations_count': locations_count,
-                'locations': locations,
-                'is_retracted': is_retracted,
-                'journal_metadata': journal_metadata
+                'title': title,                                     # (str) The title of the research paper.
+                'publication_year': publication_year,               # (int) The year the paper was published.
+                'cited_by_count': cited_by_count,                   # (int) Total number of times this paper has been cited.
+                'years_since_publication': years_since_publication, # (int) Number of years since the paper was published.
+                'total_paper_citation_count': total_paper_citation_count, # (int) Same as cited_by_count.
+                'author_metadata': author_metadata,                 # (list of dicts) List of authors with their details.
+                'author_count': author_count,                       # (int) Number of authors for this paper.
+                'is_in_doaj': is_in_doaj,                           # (bool or str) Whether the journal is listed in DOAJ.
+                'publisher': publisher,                             # (str) Name of the journal's publisher.
+                'open_access': open_access,                         # (bool or str) Whether the paper is open access.
+                'concepts': concepts,                               # (list) List of research topics/concepts.
+                'language': language,                               # (str) Language of the paper.
+                'doi': doi,                                         # (str) Digital Object Identifier for the paper.
+                'locations_count': locations_count,                 # (int) Number of locations (sources) where the paper is indexed.
+                'locations': locations,                             # (list) List of location/source dicts.
+                'is_retracted': is_retracted,                       # (bool) Whether the paper has been retracted.
+                'journal_metadata': journal_metadata,               # (dict or None) Metadata about the journal.
+                'grants': grants,                                   # (list) Grants associated with the paper.
+                'referenced_works_count': referenced_works_count,   # (int) Number of works this paper references.
+                'related_works': related_works,                     # (list) List of related work IDs.
+                'sustainable_development_goals': sustainable_development_goals, # (list) SDGs associated with the paper.
+                'counts_by_year': counts_by_year,                   # (list) Citation/publication counts by year.
+                'publication_date': publication_date,               # (str) Full publication date (YYYY-MM-DD).
+                'created_date': created_date                        # (str) Date the record was created in OpenAlex.
             }
         return NOT_FOUND
     except Exception as e:
@@ -309,55 +333,85 @@ def get_paper_metadata_v2(paper_input, input_type):
         traceback.print_exc()
         return ERROR_STATE
 
+
 def paper_credibility_prompt(metadata):
     """
-    Compose a prompt for an LLM to assess scientific paper credibility using all available metadata.
+    Compose a detailed prompt for an LLM to assess scientific paper credibility using all available metadata.
+    This version covers all fields returned by get_paper_metadata_v2 and provides clear, explicit instructions.
     """
-    # Prepare author and affiliation summaries
+    from datetime import datetime
+    current_year = datetime.now().year
+
+    # Author summary
     author_metadata = metadata.get('author_metadata', [])
-    author_count = len(author_metadata)
-    author_names = [a.get('name', 'Unknown') for a in author_metadata]
-    orcid_count = sum(1 for a in author_metadata if a.get('has_orcid'))
-    author_affiliations = [a.get('affiliation', 'Unknown') for a in author_metadata]
-    retraction_rates = [a.get('retraction_rate', None) for a in author_metadata if a.get('retraction_rate') is not None]
+    author_count = metadata.get('author_count', 0)
+    author_names = [a.get('name', 'Unknown') for a in author_metadata] if isinstance(author_metadata, list) else []
+    orcid_count = sum(1 for a in author_metadata if a.get('has_orcid')) if isinstance(author_metadata, list) else 0
+    author_affiliations = [a.get('affiliation', 'Unknown') for a in author_metadata] if isinstance(author_metadata, list) else []
+    corresponding_authors = [a.get('name', 'Unknown') for a in author_metadata if a.get('is_corresponding')] if isinstance(author_metadata, list) else []
+    author_positions = [a.get('author_position', 'Unknown') for a in author_metadata] if isinstance(author_metadata, list) else []
 
     # Journal metadata
     journal = metadata.get('journal_metadata', {}) or {}
+    journal_title = journal.get('title', 'Unknown')
     publisher = journal.get('publisher', 'Unknown')
     is_in_doaj = journal.get('is_in_doaj', False)
     is_indexed_in_scopus = journal.get('is_indexed_in_scopus', False)
     h_index = journal.get('h_index', 'Unknown')
     retraction_rate = journal.get('retraction_rate', 0.0)
     retracted_papers_count = journal.get('retracted_papers_count', 0)
-    journal_title = journal.get('title', 'Unknown')
 
     # Paper-level
-    cited_by_count = metadata.get('cited_by_count', 0)
+    title = metadata.get('title', 'Unknown')
     publication_year = metadata.get('publication_year', 'Unknown')
+    publication_date = metadata.get('publication_date', 'Unknown')
+    created_date = metadata.get('created_date', 'Unknown')
+    cited_by_count = metadata.get('cited_by_count', 0)
+    years_since_publication = metadata.get('years_since_publication', 'Unknown')
+    total_paper_citation_count = metadata.get('total_paper_citation_count', 0)
     open_access = metadata.get('open_access', False)
-    doi = metadata.get('doi', 'Unknown')
     is_retracted = metadata.get('is_retracted', False)
+    doi = metadata.get('doi', 'Unknown')
+    language = metadata.get('language', 'Unknown')
     concepts = metadata.get('concepts', [])
     top_concepts = ", ".join([c.get('display_name', '') for c in concepts if c.get('score', 0) > 0.3]) if concepts else "Unknown"
-    from datetime import datetime
-    current_year = datetime.now().year
+    locations_count = metadata.get('locations_count', 0)
+    referenced_works_count = metadata.get('referenced_works_count', 'Unknown')
+    related_works = metadata.get('related_works', [])
+    related_works_count = len(related_works) if isinstance(related_works, list) else "Unknown"
+    sustainable_development_goals = metadata.get('sustainable_development_goals', [])
+    sdg_summary = ", ".join([sdg.get('display_name', 'Unknown') for sdg in sustainable_development_goals]) if sustainable_development_goals else "None"
+    counts_by_year = metadata.get('counts_by_year', [])
+    grants = metadata.get('grants', [])
+    grants_summary = ", ".join([g.get('funder_display_name', 'Unknown') for g in grants]) if grants else "None"
 
     prompt = f"""
-    The current year is {current_year}.
+The current year is {current_year}.
 You are an expert in academic publishing and research integrity. Given the following metadata, assess the credibility of this scientific paper on a scale from 0 (not credible) to 100 (highly credible). 
-Consider all signals: author ORCID and affiliations, publisher reputation, journal indexing (DOAJ, Scopus), journal h-index, retraction history, citation count, DOI, open access status, and concept specificity.
+Consider all signals: author ORCID and affiliations, publisher reputation, journal indexing (DOAJ, Scopus), journal h-index, retraction history, citation count, DOI, open access status, concept specificity, funding sources, citation/reference patterns, and any other relevant metadata.
 
 **Metadata:**
-- Paper Title: {metadata.get('title', 'Unknown')}
+- Paper Title: {title}
 - Publication Year: {publication_year}
+- Publication Date: {publication_date}
+- Record Created Date: {created_date}
+- Years Since Publication: {years_since_publication}
 - Cited By Count: {cited_by_count}
+- Total Paper Citation Count: {total_paper_citation_count}
+- Referenced Works Count: {referenced_works_count}
+- Related Works Count: {related_works_count}
 - Is Retracted: {is_retracted}
 - DOI: {doi}
 - Open Access: {open_access}
+- Language: {language}
+- Author Count: {author_count}
 - Authors: {', '.join(author_names)}
 - Author ORCID Count: {orcid_count}/{author_count}
 - Author Affiliations: {', '.join(author_affiliations)}
-- Author Retraction Rates: {', '.join(str(r) for r in retraction_rates) if retraction_rates else 'None'}
+- Corresponding Authors: {', '.join(corresponding_authors) if corresponding_authors else 'None'}
+- Author Positions: {', '.join(str(pos) for pos in author_positions) if author_positions else 'Unknown'}
+- Grants/Funding: {grants_summary}
+- Sustainable Development Goals: {sdg_summary}
 - Journal Title: {journal_title}
 - Publisher: {publisher}
 - In DOAJ: {is_in_doaj}
@@ -366,23 +420,32 @@ Consider all signals: author ORCID and affiliations, publisher reputation, journ
 - Journal Retraction Rate: {retraction_rate:.2%}
 - Journal Retracted Papers Count: {retracted_papers_count}
 - Top Concepts: {top_concepts}
+- Counts by Year: {counts_by_year}
 
 **Instructions:**
-- Consider all metadata and use your expertise to decide if the publisher is trusted, if author affiliations are reputable, and if the journal is credible.
-- If the paper is retracted, assign a very low score.
-- If the journal is open access but not in DOAJ, treat as a red flag.
-- If the publisher is known to be reputable, this is a strong positive.
-- If authors have ORCID and reputable affiliations, this is a positive sign.
-- If the journal has a high h-index and is indexed in Scopus, this is a strong positive.
-- If the journal or authors have a high retraction rate, this is a strong negative.
-- If the paper is old and has no citations, this is a negative.
-- If the DOI is missing or invalid, this is a strong negative.
-- If the paper's concepts are broad or unrelated, this is a negative.
-- Weigh all factors and provide a single confidence score (0-100).
+- Assign weights: Indexing status (25%), Publisher/Host Reputation (20%), Citation Metrics (15%), Retraction History (15%), Author Credibility (15%), Transparency (10%).
+- If open access but not in DOAJ, deduct 20 points.
+- If not in any core index (e.g., Scopus, Web of Science) or delisted, deduct 25 points. Specify delisting year if known (via OpenAlex `is_core` history).
+- If publisher/host is on a known blacklist (e.g., Beall’s List), deduct 30 points.
+- If publisher is unknown or not in a whitelist (e.g., OASPA members), deduct 10 points.
+- If APC info is missing for an OA journal, deduct 15 points.
+- If total works > 500/year but h-index < 10, deduct 15 points.
+- If retraction rate > 1% or retracted papers > 5, deduct 20 points.
+- If scope spans > 5 unrelated fields (e.g., medicine and physics), deduct 10 points.
+- If in DOAJ or a core index, add 20 points; if published by a reputable publisher (e.g., Elsevier, Springer), add 15 points.
+- If homepage URL is missing, uses a non-standard domain (e.g., .biz), or lacks professional design, deduct 10 points.
+- If publisher/host lacks transparency (no contact info, address), deduct 10 points.
+- If APCs are < $200 USD or > $3000 USD compared to field norms, deduct 10 points.
+- If >50% of authors lack ORCID or reputable affiliations (e.g., top universities), deduct 10 points.
+- If sample paper shows >50% authors without ORCID, or no corresponding author (via `authorships`), deduct 10 points.
+- If sample paper’s `cited_by_count` trends (via `counts_by_year`) show sudden spikes (>50% citations in one year), deduct 10 points for potential citation manipulation.
+- If sample paper’s `referenced_works_count` < 10, deduct 5 points for poor scholarship.
+- If ISSN is unregistered or linked to multiple unrelated titles (via OpenAlex `issn_l`), deduct 20 points.
+- Provide a single confidence score (0-100) based on weighted factors.
 
 **Output:**
 1. Confidence Score (0-100): [your score]
-2. Rationale: String explaining the reason in less than 250 words strictly. (consider that I'm a human reader and I need to understand your reasoning. As a web developer, This string will directly dumped on the UI.)
+2. Rationale: String explaining the reason in less than 250 words strictly. (This string will be shown directly to a human user.)
 
 Respond in this format:
 Confidence Score: [score]
