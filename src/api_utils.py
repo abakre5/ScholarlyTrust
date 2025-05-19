@@ -388,8 +388,7 @@ def paper_credibility_prompt(metadata):
 
     prompt = f"""
 The current year is {current_year}.
-You are an expert in academic publishing and research integrity. Given the following metadata, assess the credibility of this scientific paper on a scale from 0 (not credible) to 100 (highly credible). 
-Consider all signals: author ORCID and affiliations, publisher reputation, journal indexing (DOAJ, Scopus), journal h-index, retraction history, citation count, DOI, open access status, concept specificity, funding sources, citation/reference patterns, and any other relevant metadata.
+You are an expert in academic publishing and research integrity. Given the following metadata, assess the credibility of this scientific paper on a scale from 0 (not credible/predatory) to 100 (highly credible).
 
 **Metadata:**
 - Paper Title: {title}
@@ -424,33 +423,30 @@ Consider all signals: author ORCID and affiliations, publisher reputation, journ
 - Counts by Year: {counts_by_year}
 
 **Instructions:**
-- Assign weights: Indexing status (25%), Publisher/Host Reputation (20%), Citation Metrics (15%), Retraction History (15%), Author Credibility (15%), Transparency (10%).
-- If open access but not in DOAJ, deduct 20 points.
-- If not in any core index (e.g., Scopus, Web of Science) or delisted, deduct 25 points. Specify delisting year if known (via OpenAlex `is_core` history).
-- If publisher/host is on a known blacklist (e.g., Beall’s List), deduct 30 points.
-- If publisher is unknown or not in a whitelist (e.g., OASPA members), deduct 10 points.
-- If APC info is missing for an OA journal, deduct 15 points.
-- If total works > 500/year but h-index < 10, deduct 15 points.
-- If retraction rate > 1% or retracted papers > 5, deduct 20 points.
-- If scope spans > 5 unrelated fields (e.g., medicine and physics), deduct 10 points.
-- If in DOAJ or a core index, add 20 points; if published by a reputable publisher (e.g., Elsevier, Springer), add 15 points.
-- If homepage URL is missing, uses a non-standard domain (e.g., .biz), or lacks professional design, deduct 10 points.
-- If publisher/host lacks transparency (no contact info, address), deduct 10 points.
-- If APCs are < $200 USD or > $3000 USD compared to field norms, deduct 10 points.
-- If >50% of authors lack ORCID or reputable affiliations (e.g., top universities), deduct 10 points.
-- If sample paper shows >50% authors without ORCID, or no corresponding author (via `authorships`), deduct 10 points.
-- If sample paper’s `cited_by_count` trends (via `counts_by_year`) show sudden spikes (>50% citations in one year), deduct 10 points for potential citation manipulation.
-- If sample paper’s `referenced_works_count` < 10, deduct 5 points for poor scholarship.
-- If ISSN is unregistered or linked to multiple unrelated titles (via OpenAlex `issn_l`), deduct 20 points.
-- Provide a single confidence score (0-100) based on weighted factors.
+- If the journal or publisher is associated with aggressive pay-to-publish advertising, or if the APC is highlighted as a main feature, treat this as a major red flag and deduct at least 40 points.
+- If the journal is listed on known predatory lists, or there are credible external reports of predatory practices, assign a score below 30.
+- If the journal is not in DOAJ or a core index, or lacks a reputable publisher, do not assign a score above 70.
+- If the journal or publisher is not transparent about APCs, or if APCs are unusually high/low, treat this as a strong negative.
+- If the editorial board is missing or unverifiable, or if the journal lacks clear peer review policies, treat this as a major red flag.
+- If the paper is retracted, assign a very low score.
+- If the paper is old and has no citations, this is a negative.
+- If the DOI is missing or invalid, this is a strong negative.
+- If the paper's concepts are broad or unrelated, this is a negative.
+- If the paper is supported by reputable grants or aligns with recognized Sustainable Development Goals, this is a positive.
+- If the referenced works count is unusually low or high, or if citation patterns are suspicious, mention this.
+- If the author count is unusually high or low for the field, mention this.
+- If the publication date or created date is inconsistent with citation counts, mention this.
+- If the language is inconsistent with the journal's scope or target audience, mention this.
+- If the corresponding author or author positions indicate unusual authorship patterns, mention this.
+- Weigh all factors and provide a single confidence score (0-100).
 
 **Output:**
 1. Confidence Score (0-100): [your score]
-2. Rationale: Explain the reasoning in less than 400 words, focusing on weighted factors, red flags, and positive signals. Don't talk about weights in here. (This will be shown directly to a human user.)
+2. Rationale: String explaining the reason in less than 400 words strictly. (This string will be shown directly to a human user.)
 
 Respond in this format:
 Confidence Score: [score]
-Rationale (HTML): [A short, well-formed HTML block. Use <ul> and <li> for lists, <a> for links and <p> for paragraphs. Do not mix plain text and HTML tags outside of a block. All content should be inside <p>, <ul>, <li>, or <b> tags as appropriate. The reasoning should be a very convincing, max 300 words. 
+Rationale (HTML): [A short, well-formed HTML block. Use <ul> and <li> for lists, <a> for links and <p> for paragraphs. Do not mix plain text and HTML tags outside of a block. All content should be inside <p>, <ul>, <li>, or <b> tags as appropriate. The reasoning should be a very convincing, max 400 words. 
 If possible, include specific proofs or evidence (such as direct metadata values, explicit journal or publisher names, or citation counts) that support your score. 
 If you can, add external links to authoritative sources (e.g., DOAJ, publisher homepage, or retraction notices) as HTML <a> tags to increase credibility. 
 This string will be shown directly in a web UI.]
