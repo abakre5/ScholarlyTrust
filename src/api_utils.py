@@ -155,6 +155,7 @@ def get_journal_metadata(id, is_issn=True):
                 two_yr_mean_citedness = summary_stats.get('2yr_mean_citedness', NOT_FOUND)
                 host_organization_name = source.get('host_organization_name', NOT_FOUND)
                 apc_prices = source.get('apc_prices', NOT_FOUND)
+                counts_by_year = source.get('counts_by_year', NOT_FOUND)
 
                 return {
                     "title": title,
@@ -174,7 +175,8 @@ def get_journal_metadata(id, is_issn=True):
                     "host_organization_name": host_organization_name,
                     "apc_prices": apc_prices,
                     "retracted_papers_count": retracted_papers_count,
-                    "retraction_rate": retraction_rate
+                    "retraction_rate": retraction_rate,
+                    "counts_by_year": counts_by_year  
                 }
         return None
     except Exception as e:
@@ -375,7 +377,6 @@ def paper_credibility_prompt(metadata):
     language = metadata.get('language', 'Unknown')
     concepts = metadata.get('concepts', [])
     top_concepts = ", ".join([c.get('display_name', '') for c in concepts if c.get('score', 0) > 0.3]) if concepts else "Unknown"
-    locations_count = metadata.get('locations_count', 0)
     referenced_works_count = metadata.get('referenced_works_count', 'Unknown')
     related_works = metadata.get('related_works', [])
     related_works_count = len(related_works) if isinstance(related_works, list) else "Unknown"
@@ -445,7 +446,7 @@ Consider all signals: author ORCID and affiliations, publisher reputation, journ
 
 **Output:**
 1. Confidence Score (0-100): [your score]
-2. Rationale: String explaining the reason in less than 250 words strictly. (This string will be shown directly to a human user.)
+2. Rationale: Explain the reasoning in less than 400 words, focusing on weighted factors, red flags, and positive signals. Don't talk about weights in here. (This will be shown directly to a human user.)
 
 Respond in this format:
 Confidence Score: [score]
@@ -521,14 +522,15 @@ def journal_credibility_prompt(metadata):
     homepage_url = metadata.get('homepage_url', 'N/A')
     title = metadata.get('title', 'Unknown')
     fields_of_research = ', '.join(metadata.get('fields_of_research', []))
+    counts_by_year = metadata.get('counts_by_year', 'Unknown')
 
     from datetime import datetime
     current_year = datetime.now().year
 
     prompt = f"""
 The current year is {current_year}.
-You are an expert in academic publishing and research integrity. Given the following metadata, assess the credibility of this journal on a scale from 0 (not credible/predatory) to 100 (highly credible). 
-Consider all signals: DOAJ and core index status, publisher and host organization reputation, country code, APC transparency, citation and impact metrics, retraction history, author ORCID and affiliations, and scope.
+You are an expert in academic publishing and research integrity. Given the following metadata from OpenAlex, assess the credibility of this journal on a scale from 0 (not credible/predatory) to 100 (highly credible). 
+Consider all signals: DOAJ and core index status, publisher and host organization reputation, country code, APC transparency, citation and impact metrics, retraction history, author ORCID and affiliations, scope consistency, and annual trends in publication/citation counts.
 
 **Journal Metadata:**
 - Title: {title}
@@ -550,36 +552,36 @@ Consider all signals: DOAJ and core index status, publisher and host organizatio
 - Retracted Papers Count: {retracted_papers_count}
 - Fields of Research: {fields_of_research}
 - Author Information: {authors_info}
+- Counts by Year: {counts_by_year}
 
 **Instructions:**
-- If the journal is open access but not in DOAJ, this is a major red flag.
-- If the journal is not in any core scholarly index (such as Scopus or DOAJ), or has been discontinued or delisted from such indexes, this is a strong negative indicator. If possible, mention the year or period when indexing stopped.
-- If the publisher or host organization is on a known blacklist, this is a critical risk.
-- If the publisher is unknown or not in a whitelist, this is a minor risk.
-- If APC info is missing for an OA journal, this is a transparency issue.
-- If the journal has high output but low citations or h-index, this is a strong risk.
-- If the journal has a high retraction rate or count, this is a strong risk.
-- If the journal's scope is unusually broad, this is a minor risk.
-- If the journal is in DOAJ or a core index, or published by a reputable publisher, this is a strong positive.
-- **If the journal was previously indexed in a major database (like Scopus) but is now discontinued or delisted, treat this as a major red flag and clearly state this in your rationale.**
-- If the homepage URL is missing, suspicious, or not a professional domain, treat this as a negative indicator and mention it in your rationale.
-- If the publisher or host organization lacks transparency (no clear contact info or physical address), treat this as a moderate risk.
-- If APCs are unusually low or high compared to reputable journals in the same field, mention this as a potential red flag.
-- If the majority of authors lack ORCID IDs or reputable institutional affiliations, treat this as a moderate risk.
-- If the editorial board is not publicly listed or contains unverifiable members, treat this as a negative indicator.
-- If the journal's metrics (h-index, i10-index, citedness) are inconsistent with its claimed reputation or age, mention this discrepancy.
-- If APC information is not easily accessible or is hidden, treat this as a transparency issue.
-- If the ISSN is not registered or is associated with multiple unrelated titles, treat this as a major red flag.
-- Weigh all factors and provide a single confidence score (0-100).
-
+- Assign weights: Indexing status (25%), Publisher/Host Reputation (20%), Citation Metrics (15%), Retraction History (15%), Author Credibility (10%), Transparency (10%), Scope Consistency (5%).
+- If open access but not in DOAJ, deduct 20 points.
+- If not in any core index (e.g., Scopus, Web of Science) or delisted, deduct 25 points. Specify delisting status if known (via `is_core`).
+- If publisher/host is on a known blacklist (e.g., Beall’s List), deduct 30 points.
+- If publisher is unknown or not in a whitelist (e.g., OASPA members), deduct 10 points.
+- If APC info is missing or hidden for an OA journal, deduct 15 points.
+- If total works > 500/year but h-index < 10, deduct 15 points.
+- If retraction rate > 1% or retracted papers > 5, deduct 20 points.
+- If scope spans > 5 unrelated fields in `fields_of_research` (e.g., medicine and physics), deduct 10 points.
+- If in DOAJ or a core index, add 20 points; if published by a reputable publisher (e.g., Elsevier, Springer), add 15 points.
+- If homepage URL is missing, uses a non-standard domain (e.g., .biz), or lacks professional design, deduct 10 points.
+- If publisher/host lacks transparency (no contact info, address), deduct 10 points.
+- If APCs are < $200 USD or > $3000 USD compared to field norms (e.g., $1000–$2000 for engineering journals), deduct 10 points.
+- If >50% of authors lack ORCID or reputable affiliations (e.g., top universities), deduct 10 points.
+- If >50% of authors in `authors_info` lack ORCID, or if frequent self-citation patterns are evident (e.g., >30% of `cited_by_count` from same authors), deduct 10 points.
+- If `counts_by_year` shows sudden spikes (>50% increase in works or citations in one year) or drops (>50% decrease), deduct 10 points for potential manipulation or instability.
+- If h-index or `two_yr_mean_citedness` is inconsistent with field norms (e.g., h-index < 5 for engineering journals with >500 works), deduct 10 points.
+- If ISSN is unregistered or linked to multiple unrelated titles (via `issn_l`), deduct 20 points.
+- Provide a single confidence score (0-100) based on weighted factors.
 
 **Output:**
 1. Confidence Score (0-100): [your score]
-2. Rationale: String explaining the reason in less than 250 words strictly. (This string will be shown directly to a human user.)
+2. Rationale: Explain the reasoning in less than 400 words, focusing on weighted factors, red flags, and positive signals. Don't talk about weights in here. (This will be shown directly to a human user.)
 
 Respond in this format:
 Confidence Score: [score]
-Rationale (HTML): [A short, well-formed HTML block. Use <ul> and <li> for lists, <a> for links and <p> for paragraphs. Do not mix plain text and HTML tags outside of a block. All content should be inside <p>, <ul>, <li>, or <b> tags as appropriate. The reasoning should be a very convincing, max 300 words. 
+Rationale (HTML): [A short, well-formed HTML block. Use <ul> and <li> for lists, <a> for links and <p> for paragraphs. Do not mix plain text and HTML tags outside of a block. All content should be inside <p>, <ul>, <li>, or <b> tags as appropriate. The reasoning should be a very convincing, max 400 words. 
 If possible, include specific proofs or evidence (such as direct metadata values, explicit journal or publisher names, or citation counts) that support your score. 
 If you can, add external links to authoritative sources (e.g., DOAJ, publisher homepage, or retraction notices) as HTML <a> tags to increase credibility. 
 This string will be shown directly in a web UI.]

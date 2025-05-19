@@ -68,9 +68,7 @@ def main():
                             return
                         if not metadata or not isinstance(metadata, dict):
                             st.error(
-                                "We could not locate this journal in any of our trusted scholarly databases like Openalex and Crossref, and no reliable metadata is available. "
-    "If you are confident that your input is correct, this strongly suggests the work is not recognized by reputable academic sources. "
-    "Otherwise, please carefully review your input for possible errors or typos."
+                                "We could not locate this journal in our trusted scholarly databases, including OpenAlex and CrossRef, which collectively index millions of academic works from reputable sources. OpenAlex, one of our primary databases, covers over 250 million works and is updated daily, with new records typically indexed within 24–48 hours of publication. The absence of this journal or paper in these databases strongly suggests it may not be recognized by reputable academic sources, potentially indicating it is unpublished, predatory, or fraudulent. Please carefully review your input for possible errors or typos. If you are confident the input is correct, we recommend verifying the journal’s status through other trusted indexes like Scopus or Web of Science, or consulting resources such as Beall’s List of Predatory Journals (https://beallslist.net/). You may also contact our support team at abakre5@gmail.com for further assistance in verifying the journal’s legitimacy."
                             )                       
                             return
                         
@@ -106,10 +104,8 @@ def main():
                             return
                         if not metadata or not isinstance(metadata, dict):
                             st.error(
-                                "We could not locate this paper in any of our trusted scholarly databases like Openalex and Crossref, and no reliable metadata is available. "
-    "If you are confident that your input is correct, this strongly suggests the work is not recognized by reputable academic sources. "
-    "Otherwise, please carefully review your input for possible errors or typos."
-                            )
+                                "We could not locate this research paper in our trusted scholarly databases, including OpenAlex and CrossRef, which collectively index millions of academic works from reputable sources. OpenAlex, one of our primary databases, covers over 250 million works and is updated daily, with new records typically indexed within 24–48 hours of publication. The absence of this journal or paper in these databases strongly suggests it may not be recognized by reputable academic sources, potentially indicating it is unpublished, predatory, or fraudulent. Please carefully review your input for possible errors or typos. If you are confident the input is correct, we recommend verifying the journal’s status through other trusted indexes like Scopus or Web of Science. You may also contact our support team at abakre5@gmail.com for further assistance in verifying the research paper's legitimacy."
+                            )   
                             return
                         
                         confidence, reason = get_paper_credibility(metadata)
@@ -143,7 +139,7 @@ def display_confidence(confidence, is_journal=True):
     """Display the confidence level and corresponding message."""
     if confidence >= 70:
         st.success(f"This {'journal' if is_journal else 'research paper'} demonstrates strong indicators of legitimacy ({confidence}% confidence).")
-    elif confidence > 30:
+    elif confidence > 40:
         st.warning(f"This {'journal' if is_journal else 'research paper'} shows several questionable indicators and should be treated with caution ({confidence}% confidence).")
     else:    
         st.error(f"This {'journal' if is_journal else 'research paper'} is likely predatory with {confidence}% confidence.")
