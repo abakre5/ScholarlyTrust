@@ -12,11 +12,12 @@ It handles user interaction, input validation, and orchestrates the workflow for
 """
 import json
 import os
+import traceback
 import streamlit as st
 import requests
 import re
 
-from api_utils import ERROR_STATE, HIJACKED_ISSN, get_journal_credibility, get_paper_credibility, get_paper_metadata_v2, get_journal_metadata
+from api_utils import ERROR_STATE, HIJACKED_ISSN, NOT_FOUND, get_journal_assessment, get_journal_credibility, get_paper_credibility, get_paper_metadata_v2, get_journal_metadata, get_research_paper_assessment
 
 
 def validate_issn(issn):
@@ -29,8 +30,14 @@ def validate_title(title):
     return len(title.strip()) > 0 and len(title) <= 500
 
 def main():
-    st.title("ScholarlyTrust: Research Integrity Checker")
-    st.write("Check the legitimacy of a journal (by ISSN or Name) or a research paper (by DOI or Title).")
+    st.set_page_config(
+        page_title="ScholarlyTrust: Journal & Paper Credibility Checker",
+        page_icon="🔎",
+        layout="centered"
+    )
+    
+    st.title("🔎 ScholarlyTrust: Journal & Paper Credibility Assessment")
+    st.write("Assess the credibility and integrity of journals (by ISSN or Name) or research papers (by DOI or Title) using trusted scholarly data sources.")
     
     # Add disclaimer
     st.warning("**Disclaimer:** Results are based on available data and algorithms and may not be 100% accurate.")    
@@ -55,30 +62,31 @@ def main():
                 with st.spinner("Analyzing your request..."):
                     try:
                         journal_input = journal_input.strip()
+                        assessment = None
                         if input_type == "ISSN":
-                            metadata = get_journal_metadata(journal_input, True)
+                            assessment = get_journal_assessment(journal_input, True)
                         else:  # Input type is "Name"
-                            metadata = get_journal_metadata(journal_input, False)  # You need to implement this function
-                        
-                        if metadata is ERROR_STATE:
-                            message_something_went_wrong()
+                            assessment = get_journal_assessment(journal_input, False)  # You need to implement this function
+
+                        if assessment == ERROR_STATE:
+                            st.error("An error occurred while processing your request. Please try again later.")
                             return
-                        if metadata is HIJACKED_ISSN:
-                            st.error(f"This journal is definitely predatory as it is marked as a hijacked journal.")
-                            return
-                        if not metadata or not isinstance(metadata, dict):
+                        elif assessment == NOT_FOUND:
                             st.error(
-                                "We could not locate this journal in our trusted scholarly databases, including OpenAlex and CrossRef, which collectively index millions of academic works from reputable sources. OpenAlex, one of our primary databases, covers over 250 million works and is updated daily, with new records typically indexed within 24–48 hours of publication. The absence of this journal or paper in these databases strongly suggests it may not be recognized by reputable academic sources, potentially indicating it is unpublished, predatory, or fraudulent. Please carefully review your input for possible errors or typos. If you are confident the input is correct, we recommend verifying the journal’s status through other trusted indexes like Scopus or Web of Science, or consulting resources such as Beall’s List of Predatory Journals (https://beallslist.net/). You may also contact our support team at abakre5@gmail.com for further assistance in verifying the journal’s legitimacy."
-                            )                       
+                                "No matching journal was found in our trusted scholarly databases. "
+                                "Please double-check the ISSN or journal name for accuracy. "
+                                "If you believe this is a reputable journal, it may not be indexed in OpenAlex or Crossref yet, "
+                                "or there may be a typo in your input. Try searching with the official ISSN (preferred) or the exact journal name as listed by the publisher. "
+                                "If the problem persists, the journal may not be recognized by major scholarly indices."
+                            )
                             return
                         
-                        confidence, reason = get_journal_credibility(metadata)
-                        if confidence is ERROR_STATE:
-                            st.error("Something went wrong.")
-                            return
-                        display_confidence(confidence, is_journal=True)
-                        display_investigation_summary(reason)
-                    except Exception:
+                        st.header("Journal Assessment")
+                        st.markdown(assessment, unsafe_allow_html=True)
+                        
+                    except Exception as e:
+                        st.error(f"An error occurred: {e}")
+                        traceback.print_exc()
                         message_something_went_wrong()
                         return
                 
@@ -98,23 +106,22 @@ def main():
                 with st.spinner("Analyzing your request..."):
                     try:
                         paper_input = paper_input.strip()
-                        metadata = get_paper_metadata_v2(paper_input, input_type.lower())
-                        if metadata is ERROR_STATE:
-                            message_something_went_wrong()
+                        assessment = get_research_paper_assessment(paper_input, input_type.lower())
+                        if assessment == ERROR_STATE:
+                            st.error("An error occurred while processing your request. Please try again later.")
                             return
-                        if not metadata or not isinstance(metadata, dict):
+                        elif assessment == NOT_FOUND:
                             st.error(
-                                "We could not locate this research paper in our trusted scholarly databases, including OpenAlex and CrossRef, which collectively index millions of academic works from reputable sources. OpenAlex, one of our primary databases, covers over 250 million works and is updated daily, with new records typically indexed within 24–48 hours of publication. The absence of this journal or paper in these databases strongly suggests it may not be recognized by reputable academic sources, potentially indicating it is unpublished, predatory, or fraudulent. Please carefully review your input for possible errors or typos. If you are confident the input is correct, we recommend verifying the journal’s status through other trusted indexes like Scopus or Web of Science. You may also contact our support team at abakre5@gmail.com for further assistance in verifying the research paper's legitimacy."
-                            )   
+                                "No matching research paper was found in our trusted scholarly databases. "
+                                "Please double-check the DOI or paper title for accuracy. "
+                                "If you believe this is a reputable research paper, it may not be indexed in OpenAlex or Crossref yet, "
+                                "or there may be a typo in your input. Try searching with the official DOI (preferred) or the exact paper title as listed by the publisher. "
+                                "If the problem persists, the paper may not be recognized by major scholarly indices."
+                            )
                             return
-                        
-                        confidence, reason = get_paper_credibility(metadata)
-                        if confidence is ERROR_STATE or reason is ERROR_STATE:
-                            message_something_went_wrong()
-                            return
-                        display_confidence(confidence, is_journal=False)
-                        display_investigation_summary(reason)
-        
+
+                        st.header("Research Paper Assessment")
+                        st.markdown(assessment, unsafe_allow_html=True)
                     except Exception:
                         message_something_went_wrong()
                         return
@@ -128,7 +135,7 @@ def main():
     st.markdown(
         """
         <div style="text-align: center; margin-top: 12px; font-size: 12px; color: #555;">
-            Powered by <a href="https://www.anthropic.com/" target="_blank">Anthropic</a> & <a href="https://openalex.org/" target="_blank">OpenAlex</a><br>
+            Powered by <a href="https://www.anthropic.com/" target="_blank">Anthropic</a>, <a href="https://openalex.org/" target="_blank">OpenAlex</a> & <a href="https://www.crossref.org/" target="_blank">Crossref</a><br> 
             Developed by <a href="https://www.linkedin.com/in/abhishekbakare/" target="_blank">Abhishek Bakare</a>
         </div>
         """,

@@ -11,6 +11,7 @@ This module provides utility functions for interacting with the OpenAlex API and
 - Interfacing with the Anthropic API for confidence scoring and rationale generation.
 - Parsing and formatting results for display in the ScholarlyTrust Streamlit app.
 """
+import json
 import re
 import traceback
 import requests
@@ -36,6 +37,709 @@ except KeyError:
         print("Anthropic API key not found. Please set it in secrets.toml or as an environment variable.")
         st.stop()
 
+
+
+
+
+def get_journal_metadata_openalex(id, is_issn=True):
+    """
+    Fetches journal metadata from OpenAlex, including retraction statistics and author info.
+    """
+    hijacked_issns_file = "docs/hijacked_issn.txt"
+    hijacked_journal_names_file = "docs/hijacked_journal_title.txt"
+    # try:
+    #     if is_issn:
+    #         with open(hijacked_issns_file, 'r') as file:
+    #             hijacked_issns = {line.strip() for line in file if line.strip()}
+    #         if id in hijacked_issns:
+    #             return HIJACKED_ISSN
+    #     else:
+    #         with open(hijacked_journal_names_file, 'r') as file:
+    #             hijacked_journals = {line.strip().lower() for line in file if line.strip()}
+    #         if id.lower() in hijacked_journals:
+    #             return HIJACKED_ISSN
+    # except Exception as e:
+    #     print(f"Error reading hijacked ISSNs file: {e}")
+    #     return ERROR_STATE
+
+    if is_issn:
+        url = f"https://api.openalex.org/sources?filter=issn:{id}"
+    else:
+        url = f'https://api.openalex.org/sources?search="{id}"'
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            data = response.json()
+            return pre_process_journal_openalex_data(data)
+        else:
+            print(f"Failed to fetch journal openalex metadata: {response.status_code}")
+            return NOT_FOUND
+    except Exception as e:
+        print(f"Failed to fetch journal metadata: {e}")
+        return ERROR_STATE
+
+def pre_process_journal_openalex_data(openalex_data):
+    """
+    Removes unwanted fields from OpenAlex journal metadata.
+    Fields removed: 'meta', 'alternate_titles', 'abbreviated_title', 'topic_share', 'x_concepts', any 'id' field.
+    For 'topics', only keeps the first 25 and only their 'display_name'.
+    Handles OpenAlex API response with 'results' key.
+    """
+    fields_to_remove = {
+        "meta",
+        "alternate_titles",
+        "abbreviated_title",
+        "topic_share",
+        "x_concepts",
+        "id"
+    }
+
+    def clean_dict(d):
+        cleaned = {}
+        for k, v in d.items():
+            if k in fields_to_remove:
+                continue
+            if k == "topics" and isinstance(v, list):
+                cleaned["topics"] = [
+                    {"display_name": topic.get("display_name", "")}
+                    for topic in v[:25]
+                    if isinstance(topic, dict) and "display_name" in topic
+                ]
+            else:
+                cleaned[k] = v
+        return cleaned
+
+    # If OpenAlex response has 'results', process each result
+    if isinstance(openalex_data, dict) and "results" in openalex_data:
+        return [clean_dict(item) for item in openalex_data["results"] if isinstance(item, dict)]
+    elif isinstance(openalex_data, list):
+        return [clean_dict(item) for item in openalex_data if isinstance(item, dict)]
+    elif isinstance(openalex_data, dict):
+        return clean_dict(openalex_data)
+    else:
+        return openalex_data
+
+
+def get_paper_metadata_openalex(paper_input, input_type):
+    if input_type == 'doi':
+        url = f"https://api.openalex.org/works?filter=doi:{paper_input}"
+    else:
+        url = f"https://api.openalex.org/works?filter=title.search:{paper_input.replace(' ', '%20')}"
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            data = response.json()
+
+            data = data.get('results', [])
+            return pre_processed_research_paper_openalex_metadata(data)
+        else:
+            print(f"Failed to fetch paper openalex metadata: {response.status_code}")
+            return NOT_FOUND
+    except Exception as e:
+        print(f"Failed to fetch paper metadata: {e}")
+        return ERROR_STATE
+
+
+def pre_processed_research_paper_openalex_metadata(openalex_data):
+    """
+    Removes irrelevant fields from OpenAlex research paper metadata.
+    - Removes: 'primary_location', 'mesh', 'best_oa_location', 'referenced_works', 'related_works',
+      'abstract_inverted_index', 'abstract_inverted_index_v3', 'cited_by_api_url'
+    - Removes any field named 'id' or ending with '_id'
+    - Removes any field whose value is a string containing 'https://openalex.org/'
+    - Removes any list of OpenAlex URLs
+    - For 'concepts', only keeps a list of dicts with 'display_name' (drops score and other keys)
+    Returns a cleaned list of dicts (one per paper).
+    """
+    def clean_dict(d):
+        keys_to_remove = {
+            'primary_location', 'mesh', 'best_oa_location', 'referenced_works',
+            'related_works', 'abstract_inverted_index', 'abstract_inverted_index_v3', 'cited_by_api_url'
+        }
+        cleaned = {}
+        for k, v in d.items():
+            # Remove by key name
+            if k in keys_to_remove:
+                continue
+            if k == 'id' or k.endswith('_id'):
+                continue
+            # Remove if value is a string containing OpenAlex URL
+            if isinstance(v, str) and 'https://openalex.org/' in v:
+                continue
+            # Remove if value is a list of OpenAlex URLs
+            if isinstance(v, list) and all(isinstance(x, str) and 'https://openalex.org/' in x for x in v):
+                continue
+            # Special handling for concepts: keep only display_name
+            if k == "concepts" and isinstance(v, list):
+                cleaned_concepts = []
+                for concept in v:
+                    if isinstance(concept, dict) and "display_name" in concept:
+                        cleaned_concepts.append({"display_name": concept["display_name"]})
+                if cleaned_concepts:
+                    cleaned[k] = cleaned_concepts
+                continue
+            # Recursively clean dicts or lists of dicts
+            if isinstance(v, dict):
+                cleaned_v = clean_dict(v)
+                if cleaned_v:  # Only add if not empty
+                    cleaned[k] = cleaned_v
+            elif isinstance(v, list):
+                cleaned_list = []
+                for item in v:
+                    if isinstance(item, dict):
+                        cleaned_item = clean_dict(item)
+                        if cleaned_item:
+                            cleaned_list.append(cleaned_item)
+                    elif isinstance(item, str) and 'https://openalex.org/' in item:
+                        continue
+                    else:
+                        cleaned_list.append(item)
+                if cleaned_list:
+                    cleaned[k] = cleaned_list
+            else:
+                cleaned[k] = v
+        return cleaned
+
+    # If input is a list of papers, clean each; else clean the dict
+    if isinstance(openalex_data, list):
+        return [clean_dict(paper) for paper in openalex_data]
+    elif isinstance(openalex_data, dict):
+        return clean_dict(openalex_data)
+    else:
+        return openalex_data
+
+
+
+def get_journal_metadata_crossref(paper_input, input_type):
+    if input_type == 'issn':
+        url = f"https://api.crossref.org/v1/works?filter=issn:{paper_input}&select=DOI,title,container-title,ISSN&rows=1000"
+    else:
+        url = f"https://api.crossref.org/works?query.title={paper_input.replace(' ', '%20')}"
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            data = response.json()
+            return pre_process_journal_crossref_data(data)
+        else:
+            print(f"Failed to fetch paper crossref metadata: {response.status_code}")
+            return NOT_FOUND
+    except Exception as e:
+        print(f"Failed to fetch paper metadata: {e}")
+        return ERROR_STATE
+ 
+
+def pre_process_journal_crossref_data(crossref_data):
+    """
+    Extracts and returns only the following fields from Crossref journal metadata:
+    - indexed
+    - reference-count
+    - publisher
+    - issue
+    - published-print
+    - DOI
+    - type
+    - created
+    - page
+    - is-referenced-by-count
+    - deposited
+    - score
+    - issued
+    - references-count
+    - issn
+    - published
+
+    For each item in 'items', also include:
+    - publisher
+    - references-count
+    - deposited
+    - publisher-location
+    - type
+
+    Returns a list of dicts, one per item.
+    """
+    # Accept either the full API response or just the 'message' dict
+    if isinstance(crossref_data, dict) and 'message' in crossref_data:
+        items = crossref_data['message'].get('items', [])
+    elif isinstance(crossref_data, dict) and 'items' in crossref_data:
+        items = crossref_data['items']
+    elif isinstance(crossref_data, list):
+        items = crossref_data
+    else:
+        items = []
+
+    # All allowed fields (normalize keys to handle both 'reference-count' and 'references-count')
+    allowed_fields = {
+        'indexed', 'reference-count', 'publisher', 'issue', 'published-print', 'DOI', 'type', 'created', 'page',
+        'is-referenced-by-count', 'deposited', 'score', 'issued', 'references-count', 'issn', 'published',
+        'publisher-location'
+    }
+
+    def clean_item(item):
+        # Normalize both 'reference-count' and 'references-count'
+        cleaned = {}
+        for k, v in item.items():
+            key = k.lower()
+            if key in allowed_fields:
+                cleaned[key] = v
+        # Add 'publisher-location' if present
+        if 'publisher-location' in item:
+            cleaned['publisher-location'] = item['publisher-location']
+        return cleaned
+
+    return [clean_item(item) for item in items]   
+
+def get_paper_metadata_crossref(paper_input, input_type):
+    if input_type == 'doi':
+        url = f"https://api.crossref.org/v1/works/{paper_input}"
+    else:
+        url = f"https://api.crossref.org/v1/works?query.title={paper_input.replace(' ', '%20')}"
+    try:
+        response = requests.get(url)
+        if response.status_code == 200:
+            data = response.json()
+            if input_type == 'doi':
+                return pre_processed_research_paper_crossref_doi_metadata(data)
+            else:
+                return pre_processed_research_paper_crossref_title_metadata(data)
+        else:
+            print(f"Failed to fetch paper crossref metadata: {response.status_code}")
+            return NOT_FOUND
+    except Exception as e:
+        print(f"Failed to fetch paper metadata: {e}")
+        return ERROR_STATE
+
+def pre_processed_research_paper_crossref_title_metadata(crossref_data):
+    """
+    Extracts and returns only the following fields from Crossref metadata for the first item:
+        - reference-count
+        - abstract
+        - created
+        - deposited
+        - issued
+        - journal-issue
+        - published
+        - indexed
+
+    Handles both Crossref API response formats:
+    - If input is a dict with a 'message' key, extracts from crossref_data['message']['items'][0]
+    - If input is already a list of works, extracts from the first element
+    Returns a single dict (for the first paper).
+    """
+    # Accept either the full API response or just the 'message' dict
+    if isinstance(crossref_data, dict) and 'message' in crossref_data:
+        items = crossref_data['message'].get('items', [])
+    elif isinstance(crossref_data, dict) and 'items' in crossref_data:
+        items = crossref_data['items']
+    elif isinstance(crossref_data, list):
+        items = crossref_data
+    else:
+        items = []
+
+    key_map = {
+        'reference-count': 'reference_count',
+        'abstract': 'abstract',
+        'created': 'created',
+        'deposited': 'deposited',
+        'issued': 'issued',
+        'journal-issue': 'journal_issue',
+        'published': 'published',
+        'indexed': 'indexed'
+    }
+
+    if items and isinstance(items, list) and len(items) > 0:
+        item = items[0]
+        cleaned = {}
+        for k_api, k_out in key_map.items():
+            if k_api in item:
+                cleaned[k_out] = item[k_api]
+        return cleaned
+    else:
+        return {}
+
+def pre_processed_research_paper_crossref_doi_metadata(crossref_data):
+    """
+    Extracts and returns only the following fields from Crossref metadata:
+    - reference-count
+    - abstract
+    - created
+    - deposited
+    - issued
+    - journal-issue
+    - published
+    - indexed
+
+    Handles both Crossref API response formats:
+    - If input is a dict with a 'message' key, extracts from crossref_data['message']
+    - If input is already a work dict, extracts directly
+    """
+    # Accept either the full API response or just the 'message' dict
+    if isinstance(crossref_data, dict) and 'message' in crossref_data:
+        msg = crossref_data['message']
+    else:
+        msg = crossref_data
+
+    # Map Crossref keys to output keys (underscore style)
+    key_map = {
+        'reference-count': 'reference_count',
+        'abstract': 'abstract',
+        'created': 'created',
+        'deposited': 'deposited',
+        'issued': 'issued',
+        'journal-issue': 'journal_issue',
+        'published': 'published',
+        'indexed': 'indexed'
+    }
+
+    cleaned = {}
+    for k_api, k_out in key_map.items():
+        if k_api in msg:
+            cleaned[k_out] = msg[k_api]
+
+    return cleaned
+
+def get_journal_assessment(id, is_issn=True):
+    """
+    fetches journal metadata from OpenAlex and CrossRef, then generates a credibility score using an LLM.
+    """
+    openalex_metadata = get_journal_metadata_openalex(id, is_issn)
+    crossref_metadata = get_journal_metadata_crossref(id, is_issn)
+    if (
+        openalex_metadata is NOT_FOUND or
+        crossref_metadata is NOT_FOUND or
+        openalex_metadata is ERROR_STATE or
+        crossref_metadata is ERROR_STATE or
+        openalex_metadata is None or
+        crossref_metadata is None or
+        (hasattr(openalex_metadata, "__len__") and len(openalex_metadata) == 0) or
+        (hasattr(crossref_metadata, "__len__") and len(crossref_metadata) == 0)
+    ):
+        return NOT_FOUND
+
+    assessment = get_journal_credibility_from_llm(openalex_metadata, crossref_metadata)
+    return assessment
+    
+    return "abc"
+
+def get_journal_credibility_from_llm(openalex_metadata, crossref_metadata):
+    """
+    Given journal metadata from OpenAlex and CrossRef, generate a confidence score (0-100) for legitimacy.
+    Uses: DOAJ status, publisher, author ORCID, author affiliations, open access, concepts, citation count, etc.
+    """
+    prompt = get_journal_credibility_prompt(openalex_metadata, crossref_metadata)
+    try:
+        response = anthropic.messages.create(
+            model=ANTHROPIC_MODEL,
+            max_tokens=1500,
+            messages=[
+                {"role": "user", "content": prompt}
+            ]
+        )
+        formated_html_output = response.content[0].text.strip()
+        return formated_html_output
+
+    except Exception as e:
+        print(f"Failed to get journal assessment: {e}")
+        return ERROR_STATE
+
+def get_journal_credibility_prompt(openalex_metadata, crossref_metadata):
+    """
+    Compose a highly detailed prompt for an LLM to generate a nuanced, evidence-based, and visually engaging HTML assessment
+    of a journal using both OpenAlex and Crossref metadata. The output is for scientists, researchers, and journalists.
+    The output must be well-structured HTML, using visual aids (emojis, icons) for clarity and impact.
+    """
+
+    from datetime import datetime
+    current_month = datetime.now().month
+    current_year = datetime.now().year
+
+    prompt = f"""
+
+The current year is {current_year}. For any date references, use {current_year} current year.
+    **Important:** If the any date is in the current year or a future month/day, do NOT treat this as a red flag or anomaly. Do not penalize for any dates in the current year or slightly in the future.
+    You are analyzing journal as of Month: {current_month} year: {current_year}. When evaluating the dates, consider that any dates from 2024 or {current_month} {current_year} are legitimate, not future-dated.
+
+    Assessment Framework
+RED FLAGS ANALYSIS (Primary Focus)
+Conduct detailed analysis of potential credibility issues. For each red flag identified, provide:
+
+Severity level: Critical, High, Moderate, or Low concern
+Evidence: Specific metadata values supporting the concern
+Implications: What this suggests about journal integrity and editorial practices
+Context: How this compares to legitimate journal standards
+
+Critical Red Flags to Investigate:
+Predatory Publishing Indicators:
+
+Unknown or suspicious publishers not affiliated with established academic organizations
+Lack of proper indexing in legitimate databases (Scopus, Web of Science, PubMed)
+Missing DOAJ listing despite open access claims
+Excessive or undisclosed Article Processing Charges (APCs)
+Rapid publication timelines suggesting inadequate peer review
+
+Editorial Integrity Concerns:
+
+Abnormal publication patterns (sudden spikes, irregular volumes)
+High retraction rates or evidence of editorial misconduct
+Lack of transparent editorial board information
+Missing or suspicious peer review processes
+Inconsistent quality control indicators
+
+Publisher Reputation Issues:
+
+Publishers on predatory journal blacklists (Beall's list, etc.)
+Lack of established academic society affiliation
+Missing contact information or physical addresses
+Misleading journal names mimicking established publications
+Journal hijacking indicators
+
+Financial Transparency Problems:
+
+Hidden or excessive APCs without clear justification
+Lack of funding disclosure requirements
+Suspicious payment processing methods
+No clear refund or withdrawal policies
+
+Content Quality Signals:
+
+Unusually low citation rates relative to field norms
+Inconsistent subject matter scope (overly broad without specialization)
+Poor editorial standards evidenced in sample publications
+Lack of rigorous manuscript guidelines
+
+Technical and Operational Red Flags:
+
+Website quality and professional presentation issues
+Missing DOI assignment or irregular DOI patterns
+Inconsistent metadata between sources
+Poor indexing practices or database representation
+
+Supporting Evidence Analysis
+Examine metadata for:
+
+Impact Metrics: Citation patterns, h-index, field-weighted impact scores compared to discipline standards
+Editorial Standards: Peer review transparency, editorial board credentials, manuscript processing times
+Indexing Status: Presence in legitimate academic databases and their requirements
+Publisher Credibility: Established academic society partnerships, institutional affiliations
+Financial Transparency: Clear APC policies, funding requirements, institutional discounts
+
+Green Flags (Brief Acknowledgment Only)
+Mention positive indicators concisely without detailed discussion:
+
+Established publisher with academic society affiliation
+Proper indexing in major academic databases
+Transparent editorial processes and board information
+Appropriate impact metrics for the field
+DOAJ listing with verified open access practices
+
+Output Requirements
+Format: Single, comprehensive HTML block optimized for web display
+Structure:
+
+<h2>: Journal name with credibility alert level
+<h3>: Publisher and institutional affiliations
+Red Flags Section: Detailed analysis using visual indicators (70% of content)
+Supporting Evidence: Factual metadata analysis
+Brief Green Flags: Concise positive indicators
+Overall Assessment: Summary without numerical scoring
+
+Visual Indicators:
+
+🚩 Critical Red Flag: Severe credibility concerns requiring immediate attention
+❌ High Concern: Significant integrity issues affecting trustworthiness
+⚠️ Moderate Concern: Notable credibility questions requiring investigation
+🔍 Requires Investigation: Unclear or suspicious patterns needing verification
+✅ Positive Indicator: Brief mention of legitimate credentials
+ℹ️ Neutral Fact: Contextual information for assessment
+
+Evidence Standards:
+
+Quote specific metadata values with exact figures
+Provide comparative context against field standards when possible
+Include relevant hyperlinks for verification
+Support all claims with concrete data points
+Reference specific database listings and indexing status
+
+Target Length: Approximately 1200-1500 words with red flag analysis comprising 70% of the content.
+Critical Instructions:
+
+Prioritize red flags over positive indicators in analysis depth
+Provide actionable intelligence for institutional decision-makers
+Use investigative journalism standards for evidence evaluation
+Maintain professional, objective tone while highlighting concerns
+Focus on patterns indicating systematic integrity issues
+Compare against established legitimate journal standards
+Do not provide numerical scores or overall ratings
+Address inconsistencies between OpenAlex and Crossref data
+
+Important Notes:
+
+Consider conference proceedings as potentially lower-tier publications requiring additional scrutiny
+Evaluate ORCID presence and institutional affiliations of contributing authors
+Assess publication date consistency and metadata accuracy
+Analyze editorial timeline patterns for signs of inadequate review processes
+**Metadata Input**
+**OpenAlex Metadata:**
+{openalex_metadata}
+**Crossref Metadata:**
+{crossref_metadata}
+
+**Output:**
+A single, detailed, and visually structured HTML block (about 1000 letters), using the above visual aids and structure. All claims should be supported by explicit metadata values or links. Don't say crossref or openalex. The output should be well strutured and detailed so that easy to consume. The output should be ready for direct display in a web UI.
+"""
+    return prompt
+
+
+
+
+def get_research_paper_assessment(paper_input, input_type):
+    """
+    fetches journal metadata from OpenAlex and CrossRef, then generates a credibility score using an LLM.
+    """
+    openalex_metadata = get_paper_metadata_openalex(paper_input, input_type)
+    crossref_metadata = get_paper_metadata_crossref(paper_input, input_type)
+    if (
+        openalex_metadata is NOT_FOUND or
+        crossref_metadata is NOT_FOUND or
+        openalex_metadata is ERROR_STATE or
+        crossref_metadata is ERROR_STATE or
+        openalex_metadata is None or
+        crossref_metadata is None or
+        (hasattr(openalex_metadata, "__len__") and len(openalex_metadata) == 0) or
+        (hasattr(crossref_metadata, "__len__") and len(crossref_metadata) == 0)
+    ):
+        return NOT_FOUND
+
+    
+    assessment = get_research_paper_credibility_from_llm(openalex_metadata, crossref_metadata)
+    return assessment
+    
+
+def get_research_paper_credibility_from_llm(openalex_metadata, crossref_metadata):
+    """
+    Given research paper metadata from OpenAlex and CrossRef, generate a confidence score (0-100) for legitimacy.
+    Uses: DOAJ status, publisher, author ORCID, author affiliations, open access, concepts, citation count, etc.
+    """
+    prompt = get_research_paper_credibility_prompt(openalex_metadata, crossref_metadata)
+    try:
+        response = anthropic.messages.create(
+            model=ANTHROPIC_MODEL,
+            max_tokens=1500,
+            messages=[
+                {"role": "user", "content": prompt}
+            ]
+        )
+        formated_html_output = response.content[0].text.strip()
+        return formated_html_output
+
+    except Exception as e:
+        print(f"Failed to get journal assessment: {e}")
+        return ERROR_STATE
+
+def get_research_paper_credibility_prompt(openalex_metadata, crossref_metadata):
+    """
+    Compose a highly detailed prompt for an LLM to generate a nuanced, evidence-based, and visually engaging HTML assessment
+    of a research paper using both OpenAlex and Crossref metadata. The output is for scientists, researchers, and journalists.
+    The output must be well-structured HTML, using visual aids (emojis, icons) for clarity and impact.
+    """
+    from datetime import datetime
+    current_month = datetime.now().month
+    current_year = datetime.now().year
+
+    prompt = f"""
+    The current year is {current_year}. For any date references, use {current_year} current year.
+    **Important:** If the publication date or issued date is in the current year or a future month/day, do NOT treat this as a red flag or anomaly. Assume the metadata may be pre-publication or early online release, and this is normal for recent papers. Do not penalize for publication dates in the current year or slightly in the future.
+    You are analyzing research papers as of Month: {current_month} year: {current_year}. When evaluating publication dates, consider that any dates from 2024 or {current_month} {current_year} are legitimate and current publications, not future-dated.
+
+    You are an expert investigative analyst specializing in research integrity, scholarly publishing credibility, and science fraud detection. Using the provided metadata from OpenAlex and Crossref, conduct a comprehensive credibility assessment of this research paper with a primary focus on identifying and analyzing red flags. Your audience consists of research integrity officers, investigative journalists, and institutional review boards who need to make critical decisions about research trustworthiness.
+    Assessment Framework
+    RED FLAGS ANALYSIS (Primary Focus)
+    Conduct detailed analysis of potential credibility issues. For each red flag identified, provide:
+
+    Severity level: Critical, High, Moderate, or Low concern
+    Evidence: Specific metadata values supporting the concern
+    Implications: What this suggests about research integrity
+    Context: How this compares to field standards or best practices
+
+    Critical Red Flags to Investigate:
+
+    Predatory Publishing Indicators: Unknown publishers, rapid publication timelines, suspicious journal names, lack of proper indexing
+    Citation Manipulation: Unusual citation patterns, self-citation clusters, citation farming indicators
+    Authorship Issues: Ghost authorship, gift authorship, institutional misrepresentation, missing ORCID patterns
+    Peer Review Concerns: Suspiciously fast acceptance, lack of editorial rigor indicators, publisher reputation issues
+    Data Integrity Signals: Missing methodology transparency, unusual result patterns, lack of reproducibility indicators
+    Financial Irregularities: Excessive APCs, undisclosed funding, pay-to-publish schemes
+    Institutional Red Flags: Unverifiable affiliations, diploma mills, suspicious institutional patterns
+    Publication Anomalies: Retraction risks, editorial board overlap, journal hijacking indicators
+
+    Supporting Evidence Analysis
+    Examine metadata for:
+
+    Journal reputation and indexing status (Scopus, Web of Science, legitimate databases)
+    Publisher credibility and transparency
+    Editorial timeline analysis (submission to publication speed)
+    Citation network analysis and field-weighted impact scores
+    Open access compliance and licensing transparency
+    Author credential verification and institutional legitimacy
+
+    Green Flags (Brief Acknowledgment Only)
+    Mention positive indicators concisely without detailed discussion:
+
+    Reputable journal/publisher affiliations
+    Proper indexing and editorial standards
+    Transparent authorship and funding
+    Appropriate citation patterns
+
+    Output Requirements
+    Format: Single, comprehensive HTML block optimized for web display
+    Structure:
+
+    <h2>: Paper title with credibility alert level
+    <h3>: Journal and publisher information
+    Red Flags Section: Detailed analysis using visual indicators
+    Supporting Evidence: Factual metadata analysis
+    Brief Green Flags: Concise positive indicators
+    Overall Assessment: Summary without numerical scoring
+
+    Visual Indicators:
+
+    🚩 Critical Red Flag: Severe credibility concerns
+    ❌ High Concern: Significant integrity issues
+    ⚠️ Moderate Concern: Notable credibility questions
+    🔍 Requires Investigation: Unclear or suspicious patterns
+    ✅ Positive Indicator: Brief mention only
+    ℹ️ Neutral Fact: Contextual information
+
+    Evidence Standards:
+
+    Quote specific metadata values
+    Provide comparative context when possible
+    Include relevant hyperlinks for verification
+    Support all claims with concrete data points
+
+    Target Length: Approximately 1200-1500 words with emphasis on red flag analysis comprising 70% of the content.
+    Critical Instructions:
+
+    Prioritize red flags over positive indicators
+    Provide actionable intelligence for decision-makers
+    Use investigative journalism standards for evidence
+    Maintain professional, objective tone while highlighting concerns
+    Focus on patterns that suggest systematic integrity issues
+    Do not provide numerical scores or overall ratings
+
+
+    **Metadata Input**
+    **OpenAlex Metadata:**
+    {openalex_metadata}
+    **Crossref Metadata:**
+    {crossref_metadata}
+    
+    **Output:**
+    A single, detailed, and visually structured HTML block (about 1000 letters), using the above visual aids and structure. All claims should be supported by explicit metadata values or links. Don't say crossref or openalex. The output should be well structured and detailed so that it is easy to consume. The output should be ready for direct display in a web UI.
+    """
+    return prompt
+
+
+###################OOOPS######################
 def is_in_doaj(journal_issn):
     if not journal_issn:
         return False
