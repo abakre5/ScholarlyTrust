@@ -35,7 +35,7 @@ def main():
         page_icon="🔎",
         layout="centered"
     )
-    
+
     st.title("🔎 ScholarlyTrust: Journal & Paper Credibility Assessment")
     st.write("Assess the credibility and integrity of journals (by ISSN or Name) or research papers (by DOI or Title) using trusted scholarly data sources.")
     
@@ -81,7 +81,6 @@ def main():
                             )
                             return
                         
-                        st.header("Journal Assessment")
                         st.markdown(assessment, unsafe_allow_html=True)
                         
                     except Exception as e:
@@ -120,7 +119,6 @@ def main():
                             )
                             return
 
-                        st.header("Research Paper Assessment")
                         st.markdown(assessment, unsafe_allow_html=True)
                     except Exception:
                         message_something_went_wrong()
